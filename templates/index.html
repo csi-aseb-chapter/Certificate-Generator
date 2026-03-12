@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Think, Run, Debug – Certificate Download</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
+  </head>
+  <body>
+    <main class="page">
+      <section class="card">
+        <h1>Think, Run, Debug – Certificate Download</h1>
+
+        {% if error %}
+        <p class="error">{{ error }}</p>
+        {% endif %}
+
+        <form action="{{ url_for('download_certificate') }}" method="post" class="form">
+          <label for="registration_name">Registration Name</label>
+          <input
+            id="registration_name"
+            name="registration_name"
+            type="text"
+            placeholder="Enter your registration name"
+            required
+          />
+
+          <label for="team_name">Team Name</label>
+          <input
+            id="team_name"
+            name="team_name"
+            type="text"
+            placeholder="Enter your team name"
+            list="team-options"
+            required
+          />
+          <datalist id="team-options">
+            {% for team in teams %}
+            <option value="{{ team }}"></option>
+            {% endfor %}
+          </datalist>
+
+          <label for="cert_name">Name to Print on Certificate</label>
+          <input
+            id="cert_name"
+            name="cert_name"
+            type="text"
+            placeholder="Enter display name"
+            required
+          />
+
+          <button type="submit">Download Certificate</button>
+        </form>
+      </section>
+    </main>
+  </body>
+</html>
