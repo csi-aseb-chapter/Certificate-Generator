@@ -1,0 +1,377 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Coordinate Editor – {{ event.name }} – Admin</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
+    <style>
+      @font-face {
+        font-family: 'Montserrat Bold';
+        src: url('{{ url_for("static", filename="fonts/Montserrat-Bold.ttf") }}') format('truetype');
+        font-weight: 700;
+      }
+      body {
+        overflow: hidden;
+      }
+      .coord-editor-layout {
+        display: flex;
+        height: 100vh;
+        background: #f4f6fb;
+      }
+      .coord-editor-canvas {
+        flex: 1;
+        background: #fff;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 1rem;
+        overflow: auto;
+        position: relative;
+      }
+      #certEditorCanvas {
+        max-width: 100%;
+        max-height: 100%;
+        cursor: crosshair;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        border-radius: 8px;
+      }
+      .coord-editor-panel {
+        width: 300px;
+        background: #fff;
+        border-left: 1px solid #e2e8f0;
+        padding: 1.5rem;
+        overflow-y: auto;
+        display: flex;
+        flex-direction: column;
+      }
+      .coord-editor-panel h3 {
+        margin: 0 0 1rem;
+        font-size: 1.1rem;
+      }
+      .coord-editor-control {
+        margin-bottom: 1.25rem;
+      }
+      .coord-editor-control label {
+        display: block;
+        margin-bottom: 0.4rem;
+        font-weight: 600;
+        font-size: 0.9rem;
+        color: var(--text);
+      }
+      .coord-editor-control input {
+        width: 100%;
+        border: 1px solid #d6dbe6;
+        border-radius: 8px;
+        padding: 0.6rem;
+        font-size: 0.95rem;
+      }
+      .coord-editor-control input:focus {
+        outline: none;
+        border-color: var(--accent);
+        box-shadow: 0 0 0 3px rgba(45, 108, 223, 0.15);
+      }
+      .coord-editor-control input[type="color"] {
+        appearance: none;
+        -webkit-appearance: none;
+        min-height: 44px;
+        padding: 0.2rem;
+        cursor: pointer;
+      }
+      .coord-editor-control input[type="color"]::-webkit-color-swatch-wrapper {
+        padding: 0;
+      }
+      .coord-editor-control input[type="color"]::-webkit-color-swatch {
+        border: none;
+        border-radius: 6px;
+      }
+      .coord-editor-control input[type="color"]::-moz-color-swatch {
+        border: none;
+        border-radius: 6px;
+      }
+      .coord-editor-actions {
+        margin-top: auto;
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
+      }
+      .coord-editor-btn {
+        border: none;
+        border-radius: 8px;
+        padding: 0.75rem 1rem;
+        font-size: 0.95rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.15s;
+      }
+      .coord-editor-btn.primary {
+        background: var(--accent);
+        color: #fff;
+      }
+      .coord-editor-btn.primary:hover {
+        background: var(--accent-hover);
+      }
+      .coord-editor-btn.secondary {
+        background: #e2e8f0;
+        color: var(--text);
+      }
+      .coord-editor-btn.secondary:hover {
+        background: #cbd5e1;
+      }
+      .coord-info {
+        font-size: 0.85rem;
+        color: var(--muted);
+        background: #f8fafc;
+        padding: 0.75rem;
+        border-radius: 6px;
+        margin-top: 1rem;
+        border-left: 3px solid var(--accent);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="coord-editor-layout">
+      <div class="coord-editor-canvas">
+        <canvas id="certEditorCanvas"></canvas>
+      </div>
+      <div class="coord-editor-panel">
+        <h3>Text Position</h3>
+        <form id="editorForm" method="post" action="{{ url_for('admin_update_config', slug=event.slug) }}">
+          <div class="coord-editor-control">
+            <label for="text_x">X Position (px)</label>
+            <input
+              id="text_x" name="text_x" type="number" min="0"
+              value="{{ event.text_x if event else 1789 }}"
+            />
+          </div>
+
+          <div class="coord-editor-control">
+            <label for="text_y">Y Position (px)</label>
+            <input
+              id="text_y" name="text_y" type="number" min="0"
+              value="{{ event.text_y if event else 1440 }}"
+            />
+          </div>
+
+          <h3 style="margin-top: 1.5rem;">Text Style</h3>
+
+          <div class="coord-editor-control">
+            <label for="font_size">Font Size (px)</label>
+            <input
+              id="font_size" name="font_size" type="number" min="8"
+              value="{{ event.font_size if event else 100 }}"
+            />
+          </div>
+
+          <div class="coord-editor-control">
+            <label for="font_color">Font Color</label>
+            {% if event and event.font_color %}
+              {% set fc = event.font_color %}
+              <input id="font_color" name="font_color" type="color"
+                value="#{{ '%02x%02x%02x' % (fc[0], fc[1], fc[2]) }}"
+              />
+            {% else %}
+              <input id="font_color" name="font_color" type="color" value="#321812" />
+            {% endif %}
+          </div>
+
+          <h3 style="margin-top: 1.5rem;">Preview Text</h3>
+
+          <div class="coord-editor-control">
+            <label for="sample_text">Sample Text (for preview only)</label>
+            <input
+              id="sample_text" type="text"
+              value="Sample Text"
+              placeholder="Enter preview text..."
+            />
+          </div>
+
+          <div class="coord-info">
+            <strong>💡 Tip:</strong> Drag the text marker on the certificate to adjust position, or edit values directly.
+          </div>
+
+          <div class="coord-editor-actions">
+            <button type="submit" class="coord-editor-btn primary">✓ Save Changes</button>
+            <a href="{{ url_for('admin_edit_event', slug=event.slug) }}" class="coord-editor-btn secondary" style="text-align: center; text-decoration: none; color: var(--text);">← Back to Event</a>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <script>
+      const canvas = document.getElementById('certEditorCanvas');
+      const ctx = canvas.getContext('2d');
+      const form = document.getElementById('editorForm');
+
+      const textXInput = document.getElementById('text_x');
+      const textYInput = document.getElementById('text_y');
+      const fontSizeInput = document.getElementById('font_size');
+      const fontColorInput = document.getElementById('font_color');
+      const sampleTextInput = document.getElementById('sample_text');
+
+      let certImage = null;
+      let maxCanvasWidth = 0;
+      let maxCanvasHeight = 0;
+      let scaleX = 1;
+      let scaleY = 1;
+      let isDragging = false;
+      let dragOffsetX = 0;
+      let dragOffsetY = 0;
+
+      function resizeCanvas() {
+        const container = canvas.parentElement;
+        maxCanvasWidth = container.clientWidth - 20;
+        maxCanvasHeight = container.clientHeight - 20;
+        drawPreview();
+      }
+
+      function loadCertImage() {
+        const slug = '{{ event.slug }}';
+        const imgUrl = `/admin/events/${slug}/template-preview`;
+        fetch(imgUrl)
+          .then(r => {
+            if (!r.ok) throw new Error('Template not found');
+            return r.blob();
+          })
+          .then(blob => {
+            const url = URL.createObjectURL(blob);
+            const img = new Image();
+            img.onload = () => {
+              certImage = img;
+              resizeCanvas();
+            };
+            img.src = url;
+          })
+          .catch(() => {
+            ctx.fillStyle = '#999';
+            ctx.font = '20px "Montserrat Bold", Arial';
+            ctx.textAlign = 'center';
+            ctx.fillText('Template not found', canvas.width / 2, canvas.height / 2);
+          });
+      }
+
+      function drawPreview() {
+        if (!certImage) return;
+
+        // Calculate scaling to fit canvas while maintaining aspect ratio
+        const imgAspect = certImage.width / certImage.height;
+        let drawWidth = maxCanvasWidth;
+        let drawHeight = drawWidth / imgAspect;
+
+        if (drawHeight > maxCanvasHeight) {
+          drawHeight = maxCanvasHeight;
+          drawWidth = drawHeight * imgAspect;
+        }
+
+        scaleX = drawWidth / certImage.width;
+        scaleY = drawHeight / certImage.height;
+
+        canvas.width = drawWidth;
+        canvas.height = drawHeight;
+
+        // Draw certificate image
+        ctx.drawImage(certImage, 0, 0, drawWidth, drawHeight);
+
+        // Draw text position marker
+        const x = parseInt(textXInput.value) * scaleX;
+        const y = parseInt(textYInput.value) * scaleY;
+        const size = parseInt(fontSizeInput.value) * scaleX / 2;
+        const color = fontColorInput.value || '#321812';
+
+        // Highlight the draggable area
+        if (isDragging) {
+          ctx.fillStyle = 'rgba(45, 108, 223, 0.1)';
+          ctx.beginPath();
+          ctx.arc(x, y, size * 1.8, 0, Math.PI * 2);
+          ctx.fill();
+        }
+
+        // Crosshair circle
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(x, y, size, 0, Math.PI * 2);
+        ctx.stroke();
+
+        // Crosshair lines
+        ctx.beginPath();
+        ctx.moveTo(x - size * 1.5, y);
+        ctx.lineTo(x + size * 1.5, y);
+        ctx.moveTo(x, y - size * 1.5);
+        ctx.lineTo(x, y + size * 1.5);
+        ctx.stroke();
+
+        // Sample text with Montserrat Bold
+        ctx.fillStyle = color;
+        const fontSize = Math.max(12, parseInt(fontSizeInput.value) * scaleX);
+        ctx.font = `bold ${fontSize}px "Montserrat Bold", Arial`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        const displayText = sampleTextInput.value.trim() || 'Sample Text';
+        ctx.fillText(displayText, x, y);
+      }
+
+      // Handle canvas mousedown to start dragging
+      canvas.addEventListener('mousedown', (e) => {
+        if (!certImage) return;
+        const rect = canvas.getBoundingClientRect();
+        const mouseX = e.clientX - rect.left;
+        const mouseY = e.clientY - rect.top;
+
+        const textX = parseInt(textXInput.value) * scaleX;
+        const textY = parseInt(textYInput.value) * scaleY;
+        const size = parseInt(fontSizeInput.value) * scaleX / 2;
+
+        // Check if click is near the text position (within 2x the text marker size)
+        const distX = mouseX - textX;
+        const distY = mouseY - textY;
+        const distance = Math.sqrt(distX * distX + distY * distY);
+
+        if (distance < size * 2) {
+          isDragging = true;
+          dragOffsetX = distX;
+          dragOffsetY = distY;
+          canvas.style.cursor = 'grabbing';
+        }
+      });
+
+      // Handle canvas mousemove for dragging
+      canvas.addEventListener('mousemove', (e) => {
+        if (!isDragging || !certImage) return;
+
+        const rect = canvas.getBoundingClientRect();
+        const mouseX = e.clientX - rect.left;
+        const mouseY = e.clientY - rect.top;
+
+        const newX = Math.round((mouseX - dragOffsetX) / scaleX);
+        const newY = Math.round((mouseY - dragOffsetY) / scaleY);
+
+        textXInput.value = Math.max(0, newX);
+        textYInput.value = Math.max(0, newY);
+        drawPreview();
+      });
+
+      // Handle canvas mouseup to stop dragging
+      canvas.addEventListener('mouseup', () => {
+        isDragging = false;
+        canvas.style.cursor = 'crosshair';
+      });
+
+      canvas.addEventListener('mouseleave', () => {
+        isDragging = false;
+        canvas.style.cursor = 'crosshair';
+      });
+
+      // Update preview when inputs change
+      [textXInput, textYInput, fontSizeInput, fontColorInput, sampleTextInput].forEach(input => {
+        input.addEventListener('input', drawPreview);
+      });
+
+      // Handle window resize
+      window.addEventListener('resize', resizeCanvas);
+
+      // Load template on page load
+      window.addEventListener('load', loadCertImage);
+    </script>
+  </body>
+</html>

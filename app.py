@@ -28,6 +28,7 @@ os.makedirs(GENERATED_DIR, exist_ok=True)
 
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
 _SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
+VALIDATION_TYPES = {"player_team", "name_only", "email", "badge_id", "custom", "none"}
 
 
 # ─── First-run migration ──────────────────────────────────────────────────────
@@ -78,7 +79,13 @@ def _event_config_path(slug: str) -> str:
 
 
 def _event_template_path(slug: str) -> str:
-	return os.path.join(_event_dir(slug), "template.png")
+	"""Get template path. Returns first matching image file in event directory."""
+	event_dir = _event_dir(slug)
+	for ext in ['.png', '.jpg', '.jpeg', '.gif', '.webp']:
+		path = os.path.join(event_dir, f"template{ext}")
+		if os.path.exists(path):
+			return path
+	return os.path.join(event_dir, "template.png")
 
 
 def _event_csv_path(slug: str) -> str:
@@ -117,6 +124,88 @@ def load_all_events(active_only: bool = False) -> list[dict]:
 
 def normalize_value(value: str) -> str:
 	return (value or "").strip().lower()
+
+
+def parse_custom_fields(form_values: list[str]) -> list[str]:
+	fields: list[str] = []
+	seen: set[str] = set()
+	for value in form_values:
+		for token in (value or "").split(","):
+			field = normalize_value(token)
+			if field and field not in seen:
+				seen.add(field)
+				fields.append(field)
+	return fields
+
+
+def csv_headers(slug: str) -> list[str]:
+	path = _event_csv_path(slug)
+	if not os.path.exists(path):
+		return []
+	with open(path, newline="", encoding="utf-8") as f:
+		reader = csv.DictReader(f)
+		return [normalize_value(h) for h in (reader.fieldnames or []) if normalize_value(h)]
+
+
+def load_csv_rows(slug: str) -> list[dict[str, str]]:
+	rows: list[dict[str, str]] = []
+	path = _event_csv_path(slug)
+	if not os.path.exists(path):
+		return rows
+	with open(path, newline="", encoding="utf-8") as f:
+		reader = csv.DictReader(f)
+		for row in reader:
+			normalized_row: dict[str, str] = {}
+			for key, value in row.items():
+				normalized_key = normalize_value(key)
+				if normalized_key:
+					normalized_row[normalized_key] = normalize_value(value or "")
+			rows.append(normalized_row)
+	return rows
+
+
+def required_headers_for_validation(validation_type: str, custom_fields: list[str]) -> set[str]:
+	if validation_type == "player_team":
+		return {"player", "team"}
+	if validation_type == "name_only":
+		return {"name"}
+	if validation_type == "email":
+		return {"email"}
+	if validation_type == "custom":
+		return set(custom_fields)
+	return set()
+
+
+def build_custom_form_fields(custom_fields: list[str]) -> list[dict[str, str]]:
+	result: list[dict[str, str]] = []
+	for field in custom_fields:
+		key = re.sub(r"[^a-z0-9]+", "_", field).strip("_")
+		if not key:
+			continue
+		result.append({"column": field, "key": key, "label": field.replace("_", " ").title()})
+	return result
+
+
+def validation_prompt_for_type(validation_type: str) -> str:
+	if validation_type == "email":
+		return "Registration Email"
+	if validation_type == "badge_id":
+		return "Badge / ID Number"
+	if validation_type == "name_only":
+		return "Registration Name"
+	return "Registration Name"
+
+
+def event_form_context(config: dict, slug: str, error: str | None = None) -> dict:
+	validation_type = config.get("validation_type", "player_team")
+	custom_fields = config.get("custom_fields", [])
+	return {
+		"event": config,
+		"teams": load_team_names(slug) if validation_type == "player_team" else [],
+		"custom_form_fields": build_custom_form_fields(custom_fields),
+		"validation_prompt": validation_prompt_for_type(validation_type),
+		"error": error,
+	}
 
 
 def load_valid_participants(slug: str) -> set[tuple[str, str]]:
@@ -163,6 +252,66 @@ def load_team_names(slug: str) -> list[str]:
 				seen.add(key)
 				teams.append(team_raw)
 	return sorted(teams, key=lambda v: v.lower())
+
+
+def validate_participant_submission(slug: str, config: dict, form_data) -> str | None:
+	validation_type = config.get("validation_type", "player_team")
+	custom_fields: list[str] = config.get("custom_fields", [])
+	rows = load_csv_rows(slug)
+
+	if validation_type == "none":
+		return None
+
+	if validation_type == "player_team":
+		registration_name = normalize_value(form_data.get("registration_name", ""))
+		team_name = normalize_value(form_data.get("team_name", ""))
+		if not registration_name or not team_name:
+			return "Please fill all fields."
+		if (registration_name, team_name) not in load_valid_participants(slug):
+			return "Invalid player or team name."
+		return None
+
+	if validation_type == "name_only":
+		registration_name = normalize_value(form_data.get("registration_name", ""))
+		if not registration_name:
+			return "Please fill all fields."
+		if registration_name not in load_valid_names(slug):
+			return "Name not found in participant list."
+		return None
+
+	if validation_type == "email":
+		registration_email = normalize_value(form_data.get("registration_name", ""))
+		if not registration_email:
+			return "Please fill all fields."
+		if not any(row.get("email", "") == registration_email for row in rows):
+			return "Email not found in participant list."
+		return None
+
+	if validation_type == "badge_id":
+		registration_id = normalize_value(form_data.get("registration_name", ""))
+		if not registration_id:
+			return "Please fill all fields."
+		for row in rows:
+			if row.get("id", "") == registration_id or row.get("badge_id", "") == registration_id or row.get("badge_number", "") == registration_id:
+				return None
+		return "Badge/ID not found in participant list."
+
+	if validation_type == "custom":
+		if not custom_fields:
+			return "Custom validation fields are not configured by admin."
+		form_fields = build_custom_form_fields(custom_fields)
+		expected: dict[str, str] = {}
+		for field in form_fields:
+			value = normalize_value(form_data.get(f"custom_{field['key']}", ""))
+			if not value:
+				return "Please fill all fields."
+			expected[field["column"]] = value
+		for row in rows:
+			if all(row.get(col, "") == val for col, val in expected.items()):
+				return None
+		return "Details not found in participant list."
+
+	return "Unsupported validation type configured for this event."
 
 
 # ─── Certificate helpers ──────────────────────────────────────────────────────
@@ -231,10 +380,26 @@ def safe_download_name(name: str, slug: str) -> str:
 	return f"{cleaned}.png"
 
 
-def _is_valid_png(stream) -> bool:
-	header = stream.read(8)
+def _is_valid_image(stream, filename: str) -> bool:
+	"""Validate that file is a valid image (PNG, JPG, GIF, WebP)."""
+	header = stream.read(12)
 	stream.seek(0)
-	return header[:8] == b"\x89PNG\r\n\x1a\n"
+	ext = os.path.splitext(filename)[1].lower()
+	
+	# PNG: 89 50 4E 47
+	if ext == '.png' and header[:8] == b"\x89PNG\r\n\x1a\n":
+		return True
+	# JPEG: FF D8 FF
+	if ext in ['.jpg', '.jpeg'] and header[:3] == b"\xff\xd8\xff":
+		return True
+	# GIF: 47 49 46
+	if ext == '.gif' and header[:6] in [b"GIF87a", b"GIF89a"]:
+		return True
+	# WebP: RIFF ... WEBP
+	if ext == '.webp' and header[:4] == b"RIFF" and header[8:12] == b"WEBP":
+		return True
+	
+	return False
 
 
 def _parse_int(value: str | None, fallback: int) -> int:
@@ -283,9 +448,7 @@ def event_page(slug: str):
 	config = load_event(slug)
 	if config is None or not config.get("active", False):
 		return redirect(url_for("home"))
-	validation_type = config.get("validation_type", "player_team")
-	teams = load_team_names(slug) if validation_type == "player_team" else []
-	return render_template("event.html", event=config, teams=teams, error=None)
+	return render_template("event.html", **event_form_context(config, slug, None))
 
 
 @app.route("/events/<slug>/download", methods=["POST"])
@@ -298,29 +461,16 @@ def download_certificate(slug: str):
 	validation_type = config.get("validation_type", "player_team")
 	cert_name = (request.form.get("cert_name", "") or "").strip()
 	if not cert_name:
-		teams = load_team_names(slug) if validation_type == "player_team" else []
-		return render_template("event.html", event=config, teams=teams, error="Please fill all fields."), 400
-	if validation_type == "player_team":
-		registration_name = normalize_value(request.form.get("registration_name", ""))
-		team_name = normalize_value(request.form.get("team_name", ""))
-		if not registration_name or not team_name:
-			return render_template("event.html", event=config, teams=load_team_names(slug), error="Please fill all fields."), 400
-		if (registration_name, team_name) not in load_valid_participants(slug):
-			return render_template("event.html", event=config, teams=load_team_names(slug), error="Invalid player or team name."), 400
-	else:
-		registration_name = normalize_value(request.form.get("registration_name", ""))
-		if not registration_name:
-			return render_template("event.html", event=config, teams=[], error="Please fill all fields."), 400
-		if registration_name not in load_valid_names(slug):
-			return render_template("event.html", event=config, teams=[], error="Name not found in participant list."), 400
+		return render_template("event.html", **event_form_context(config, slug, "Please fill all fields.")), 400
+	validation_error = validate_participant_submission(slug, config, request.form)
+	if validation_error:
+		return render_template("event.html", **event_form_context(config, slug, validation_error)), 400
 	if not os.path.exists(_event_template_path(slug)):
-		teams = load_team_names(slug) if validation_type == "player_team" else []
-		return render_template("event.html", event=config, teams=teams, error="Certificate template not found on server."), 500
+		return render_template("event.html", **event_form_context(config, slug, "Certificate template not found on server.")), 500
 	try:
 		cert_id = generate_certificate_file(slug, cert_name, config)
 	except Exception:
-		teams = load_team_names(slug) if validation_type == "player_team" else []
-		return render_template("event.html", event=config, teams=teams, error="Something went wrong generating your certificate."), 500
+		return render_template("event.html", **event_form_context(config, slug, "Something went wrong generating your certificate.")), 500
 	return redirect(url_for("preview_page", cert_id=cert_id))
 
 
@@ -411,11 +561,14 @@ def admin_create_event():
 	name = (request.form.get("name", "") or "").strip()
 	slug = (request.form.get("slug", "") or "").strip().lower()
 	validation_type = request.form.get("validation_type", "player_team")
+	if validation_type not in VALIDATION_TYPES:
+		validation_type = "player_team"
+	custom_fields = parse_custom_fields(request.form.getlist("custom_fields"))
 	text_x = _parse_int(request.form.get("text_x"), 1789)
 	text_y = _parse_int(request.form.get("text_y"), 1440)
 	font_size = _parse_int(request.form.get("font_size"), 100)
 	font_color = _parse_color(request.form.get("font_color", ""))
-	form_data = {"name": name, "slug": slug, "validation_type": validation_type,
+	form_data = {"name": name, "slug": slug, "validation_type": validation_type, "custom_fields": custom_fields,
 				 "text_x": text_x, "text_y": text_y, "font_size": font_size, "font_color": font_color}
 	if not name or not slug:
 		return render_template("admin/event_form.html", event=form_data, is_new=True, error="Name and slug are required."), 400
@@ -426,7 +579,7 @@ def admin_create_event():
 		return render_template("admin/event_form.html", event=form_data, is_new=True,
 							   error=f"An event with slug '{slug}' already exists."), 400
 	os.makedirs(_event_dir(slug), exist_ok=True)
-	config = {"name": name, "slug": slug, "active": False, "validation_type": validation_type,
+	config = {"name": name, "slug": slug, "active": False, "validation_type": validation_type, "custom_fields": custom_fields,
 			  "text_x": text_x, "text_y": text_y, "font_size": font_size, "font_color": font_color}
 	save_event_config(slug, config)
 	return redirect(url_for("admin_edit_event", slug=slug))
@@ -442,7 +595,8 @@ def admin_edit_event(slug: str):
 		return redirect(url_for("admin_dashboard"))
 	return render_template("admin/event_form.html", event=config, is_new=False, error=None,
 						   has_template=os.path.exists(_event_template_path(slug)),
-						   has_csv=os.path.exists(_event_csv_path(slug)))
+						   has_csv=os.path.exists(_event_csv_path(slug)),
+						   csv_columns=csv_headers(slug))
 
 
 @app.route("/admin/events/<slug>/config", methods=["POST"])
@@ -454,7 +608,15 @@ def admin_update_config(slug: str):
 	if config is None:
 		return redirect(url_for("admin_dashboard"))
 	config["name"] = (request.form.get("name", "") or config["name"]).strip()
-	config["validation_type"] = request.form.get("validation_type", config.get("validation_type", "player_team"))
+	validation_type = request.form.get("validation_type", config.get("validation_type", "player_team"))
+	if validation_type not in VALIDATION_TYPES:
+		validation_type = "player_team"
+	config["validation_type"] = validation_type
+	parsed_custom_fields = parse_custom_fields(request.form.getlist("custom_fields"))
+	if validation_type == "custom":
+		config["custom_fields"] = parsed_custom_fields or config.get("custom_fields", [])
+	else:
+		config["custom_fields"] = parsed_custom_fields
 	config["text_x"] = _parse_int(request.form.get("text_x"), config.get("text_x", 1789))
 	config["text_y"] = _parse_int(request.form.get("text_y"), config.get("text_y", 1440))
 	config["font_size"] = _parse_int(request.form.get("font_size"), config.get("font_size", 100))
@@ -462,7 +624,8 @@ def admin_update_config(slug: str):
 	save_event_config(slug, config)
 	return render_template("admin/event_form.html", event=config, is_new=False, success="Settings saved.",
 						   error=None, has_template=os.path.exists(_event_template_path(slug)),
-						   has_csv=os.path.exists(_event_csv_path(slug)))
+						   has_csv=os.path.exists(_event_csv_path(slug)),
+						   csv_columns=csv_headers(slug))
 
 
 @app.route("/admin/events/<slug>/upload-template", methods=["POST"])
@@ -478,17 +641,35 @@ def admin_upload_template(slug: str):
 	file = request.files.get("template_file")
 	if not file or file.filename == "":
 		return render_template("admin/event_form.html", event=config, is_new=False,
-							   error="No file selected.", has_template=has_template, has_csv=has_csv), 400
-	if not secure_filename(file.filename).lower().endswith(".png"):
+							   error="No file selected.", has_template=has_template, has_csv=has_csv,
+							   csv_columns=csv_headers(slug)), 400
+	
+	filename = secure_filename(file.filename).lower()
+	valid_exts = ['.png', '.jpg', '.jpeg', '.gif', '.webp']
+	if not any(filename.endswith(ext) for ext in valid_exts):
 		return render_template("admin/event_form.html", event=config, is_new=False,
-							   error="Template must be a PNG file.", has_template=has_template, has_csv=has_csv), 400
-	if not _is_valid_png(file.stream):
+						   error="Template must be PNG, JPG, GIF, or WebP.", has_template=has_template, has_csv=has_csv,
+						   csv_columns=csv_headers(slug)), 400
+	
+	if not _is_valid_image(file.stream, filename):
 		return render_template("admin/event_form.html", event=config, is_new=False,
-							   error="File does not appear to be a valid PNG.", has_template=has_template, has_csv=has_csv), 400
+						   error="File does not appear to be a valid image.", has_template=has_template, has_csv=has_csv,
+						   csv_columns=csv_headers(slug)), 400
+	
+	# Delete existing template files with any extension
+	for ext in ['.png', '.jpg', '.jpeg', '.gif', '.webp']:
+		old_path = os.path.join(_event_dir(slug), f"template{ext}")
+		if os.path.exists(old_path):
+			os.remove(old_path)
+	
+	# Save new template with its original extension
 	file.stream.seek(0)
-	file.save(_event_template_path(slug))
+	ext = os.path.splitext(filename)[1].lower()
+	new_path = os.path.join(_event_dir(slug), f"template{ext}")
+	file.save(new_path)
 	return render_template("admin/event_form.html", event=config, is_new=False,
-						   success="Template uploaded successfully.", error=None, has_template=True, has_csv=has_csv)
+						   success="Template uploaded successfully.", error=None, has_template=True, has_csv=has_csv,
+						   csv_columns=csv_headers(slug))
 
 
 @app.route("/admin/events/<slug>/upload-csv", methods=["POST"])
@@ -504,28 +685,44 @@ def admin_upload_csv(slug: str):
 	file = request.files.get("csv_file")
 	if not file or file.filename == "":
 		return render_template("admin/event_form.html", event=config, is_new=False,
-							   error="No file selected.", has_template=has_template, has_csv=has_csv), 400
+							   error="No file selected.", has_template=has_template, has_csv=has_csv,
+							   csv_columns=csv_headers(slug)), 400
 	if not secure_filename(file.filename).lower().endswith(".csv"):
 		return render_template("admin/event_form.html", event=config, is_new=False,
-							   error="Participants file must be a .csv.", has_template=has_template, has_csv=has_csv), 400
+							   error="Participants file must be a .csv.", has_template=has_template, has_csv=has_csv,
+							   csv_columns=csv_headers(slug)), 400
 	content = file.stream.read().decode("utf-8", errors="replace")
 	validation_type = config.get("validation_type", "player_team")
-	required_headers = {"player", "team"} if validation_type == "player_team" else {"name"}
+	custom_fields: list[str] = config.get("custom_fields", [])
+	if validation_type == "custom" and not custom_fields:
+		return render_template("admin/event_form.html", event=config, is_new=False,
+							   error="Select at least one custom field in Event Settings before uploading CSV.",
+							   has_template=has_template, has_csv=has_csv,
+							   csv_columns=csv_headers(slug)), 400
+	required_headers = required_headers_for_validation(validation_type, custom_fields)
 	try:
 		reader = csv.DictReader(content.splitlines())
 		headers = {h.strip().lower() for h in (reader.fieldnames or [])}
+		if validation_type == "badge_id" and not ({"id", "badge_id", "badge_number"} & headers):
+			return render_template("admin/event_form.html", event=config, is_new=False,
+								   error="CSV must include one of: id, badge_id, badge_number.",
+								   has_template=has_template, has_csv=has_csv,
+								   csv_columns=sorted(headers)), 400
 		if not required_headers.issubset(headers):
 			missing = ", ".join(sorted(required_headers - headers))
 			return render_template("admin/event_form.html", event=config, is_new=False,
 								   error=f"CSV is missing required column(s): {missing}.",
-								   has_template=has_template, has_csv=has_csv), 400
+							   has_template=has_template, has_csv=has_csv,
+							   csv_columns=sorted(headers)), 400
 	except Exception:
 		return render_template("admin/event_form.html", event=config, is_new=False,
-							   error="Could not parse CSV file.", has_template=has_template, has_csv=has_csv), 400
+							   error="Could not parse CSV file.", has_template=has_template, has_csv=has_csv,
+							   csv_columns=csv_headers(slug)), 400
 	with open(_event_csv_path(slug), "w", encoding="utf-8", newline="") as f:
 		f.write(content)
 	return render_template("admin/event_form.html", event=config, is_new=False,
-						   success="Participants CSV uploaded.", error=None, has_template=has_template, has_csv=True)
+						   success="Participants CSV uploaded.", error=None, has_template=has_template, has_csv=True,
+						   csv_columns=csv_headers(slug))
 
 
 @app.route("/admin/events/<slug>/toggle", methods=["POST"])
@@ -552,6 +749,30 @@ def admin_delete_event(slug: str):
 	if os.path.isdir(event_path):
 		shutil.rmtree(event_path)
 	return redirect(url_for("admin_dashboard"))
+
+
+@app.route("/admin/events/<slug>/coordinates", methods=["GET"])
+@require_admin
+def admin_coordinate_editor(slug: str):
+	"""Full-screen coordinate editor for certificate text positioning."""
+	if not safe_slug(slug):
+		return redirect(url_for("admin_dashboard"))
+	config = load_event(slug)
+	if config is None:
+		return redirect(url_for("admin_dashboard"))
+	return render_template("admin/coordinate_editor.html", event=config)
+
+
+@app.route("/admin/events/<slug>/template-preview", methods=["GET"])
+@require_admin
+def admin_template_preview(slug: str):
+	"""Serve certificate template image for canvas preview in event editor."""
+	if not safe_slug(slug):
+		return "Not found", 404
+	template_path = _event_template_path(slug)
+	if not os.path.exists(template_path):
+		return "Template not found", 404
+	return send_file(template_path)
 
 
 # ─── Entry point ──────────────────────────────────────────────────────────────

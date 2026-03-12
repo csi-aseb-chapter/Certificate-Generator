@@ -17,14 +17,16 @@
         {% endif %}
 
         <form action="{{ url_for('download_certificate', slug=event.slug) }}" method="post" class="form">
-          <label for="registration_name">Registration Name</label>
+          {% if event.validation_type in ['player_team', 'name_only', 'email', 'badge_id'] %}
+          <label for="registration_name">{{ validation_prompt }}</label>
           <input
             id="registration_name"
             name="registration_name"
             type="text"
-            placeholder="Enter your registration name"
+            placeholder="Enter {{ validation_prompt.lower() }}"
             required
           />
+          {% endif %}
 
           {% if event.validation_type == 'player_team' %}
           <label for="team_name">Team Name</label>
@@ -41,6 +43,19 @@
             <option value="{{ team }}"></option>
             {% endfor %}
           </datalist>
+          {% endif %}
+
+          {% if event.validation_type == 'custom' %}
+            {% for field in custom_form_fields %}
+            <label for="custom_{{ field.key }}">{{ field.label }}</label>
+            <input
+              id="custom_{{ field.key }}"
+              name="custom_{{ field.key }}"
+              type="text"
+              placeholder="Enter {{ field.label.lower() }}"
+              required
+            />
+            {% endfor %}
           {% endif %}
 
           <label for="cert_name">Name to Print on Certificate</label>

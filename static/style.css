@@ -13,6 +13,12 @@
   box-sizing: border-box;
 }
 
+html,
+body {
+  width: 100%;
+  overflow-x: hidden;
+}
+
 body {
   margin: 0;
   font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
@@ -64,6 +70,32 @@ input:focus {
   outline: none;
   border-color: var(--accent);
   box-shadow: 0 0 0 3px rgba(45, 108, 223, 0.15);
+}
+
+input[type="color"] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 100%;
+  min-height: 44px;
+  padding: 0.25rem;
+  border: 1px solid #d6dbe6;
+  border-radius: 10px;
+  background: #fff;
+  cursor: pointer;
+}
+
+input[type="color"]::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+input[type="color"]::-webkit-color-swatch {
+  border: none;
+  border-radius: 8px;
+}
+
+input[type="color"]::-moz-color-swatch {
+  border: none;
+  border-radius: 8px;
 }
 
 button {
@@ -311,7 +343,7 @@ button:hover {
     max-width: 960px;
     width: 100%;
     margin: 0 auto;
-    padding: 2rem 1.5rem;
+    padding: 2rem clamp(1rem, 2.5vw, 1.5rem);
   }
 
   .admin-main h2 {
@@ -470,6 +502,7 @@ button:hover {
     border-radius: 14px;
     padding: 1.5rem;
     margin-bottom: 1.25rem;
+    overflow-x: hidden;
   }
 
   .admin-form-section h3 {
@@ -479,7 +512,8 @@ button:hover {
   }
 
   .admin-form {
-    max-width: 580px;
+    width: 100%;
+    max-width: none;
   }
 
   .fields-row {
@@ -535,3 +569,301 @@ button:hover {
   .button-link.danger:hover {
     background: #b91c1c;
   }
+
+  /* ── Validation type radio group ──────────────────────────── */
+
+  .validation-type-group {
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    padding: 1.25rem;
+    margin-bottom: 1rem;
+    background: #f8fafc;
+  }
+
+  .validation-type-group legend {
+    font-weight: 700;
+    font-size: 1rem;
+    color: var(--text);
+    margin-bottom: 0.75rem;
+    padding: 0 0.25rem;
+  }
+
+  .validation-type-group .validation-option {
+    display: grid;
+    grid-template-columns: 24px 1fr;
+    column-gap: 0.65rem;
+    row-gap: 0.2rem;
+    margin-bottom: 0.75rem;
+    cursor: pointer;
+    user-select: none;
+    border: 1px solid #dce3ef;
+    border-radius: 10px;
+    padding: 0.7rem 0.8rem;
+    background: #fff;
+    transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
+  }
+
+  .validation-type-group .validation-option:last-child {
+    margin-bottom: 0;
+  }
+
+  .validation-type-group input[type="radio"] {
+    margin-right: 0;
+    cursor: pointer;
+    width: 18px;
+    height: 18px;
+    margin-top: 0.1rem;
+    grid-row: 1 / span 3;
+  }
+
+  .validation-type-group .validation-option strong {
+    font-weight: 700;
+    color: var(--text);
+    line-height: 1.2;
+  }
+
+  .validation-type-group .validation-desc {
+    display: block;
+    font-size: 0.9rem;
+    color: var(--muted);
+    margin: 0.1rem 0 0.25rem;
+  }
+
+  .validation-type-group .validation-csv {
+    display: block;
+    font-size: 0.85rem;
+    color: #64748b;
+    margin: 0;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    font-family: "Monaco", "Courier New", monospace;
+    background: #fff;
+    padding: 0.35rem 0.5rem;
+    border-radius: 4px;
+    border-left: 3px solid var(--accent);
+  }
+
+  .validation-type-group .validation-option:hover {
+    border-color: #b9c7df;
+  }
+
+  .validation-type-group .validation-option:has(input:checked) {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(45, 108, 223, 0.12);
+    background: #f8fbff;
+  }
+
+  .custom-columns-panel {
+    border: 1px solid #dce3ef;
+    border-radius: 12px;
+    background: #f8fafc;
+    padding: 1rem;
+    margin: 0 0 1rem;
+    display: none;
+  }
+
+  .custom-columns-panel.is-visible {
+    display: block;
+  }
+
+  .custom-columns-panel h3 {
+    margin: 0 0 0.35rem;
+    font-size: 1rem;
+  }
+
+  .custom-columns-panel .field-hint {
+    margin: 0 0 0.75rem;
+  }
+
+  .custom-columns-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 0.6rem;
+  }
+
+  .custom-column-option {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    padding: 0.45rem 0.55rem;
+    border: 1px solid #d7deea;
+    border-radius: 8px;
+    background: #fff;
+    font-weight: 600;
+    color: #334155;
+    cursor: pointer;
+  }
+
+  .custom-column-option input {
+    width: 16px;
+    height: 16px;
+    margin: 0;
+  }
+
+  .custom-column-option:hover {
+    border-color: #b8c6de;
+    background: #f8fbff;
+  }
+
+  .validation-type-group .validation-csv code {
+    background: none;
+    padding: 0;
+    color: #d43030;
+    font-weight: 600;
+  }
+
+  /* ── Certificate preview layout ───────────────────────────── */
+
+  .cert-config-layout {
+    margin-bottom: 0.75rem;
+  }
+
+  .cert-config-inputs {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  .input-pair {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.75rem;
+  }
+
+  .coord-input {
+    width: 100%;
+    border: 1px solid #d6dbe6;
+    border-radius: 10px;
+    padding: 0.65rem 0.75rem;
+    font-size: 0.95rem;
+  }
+
+  .coord-input:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(45, 108, 223, 0.15);
+  }
+
+  .cert-preview-area {
+    position: relative;
+    background: #fff;
+    border: 2px dashed #cbd5e1;
+    border-radius: 12px;
+    min-height: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.35rem;
+    overflow: hidden;
+    margin-top: 0.25rem;
+  }
+
+  .cert-preview-media {
+    position: relative;
+    width: 100%;
+    border-radius: 9px;
+    overflow: hidden;
+  }
+
+  .cert-preview-canvas {
+    width: 100%;
+    height: auto;
+    display: block;
+    background: #fff;
+  }
+
+  .cert-placeholder {
+    text-align: center;
+    color: var(--muted);
+    font-size: 0.95rem;
+    padding: 1rem;
+  }
+
+  #certPreviewCanvas {
+    display: block;
+    max-width: 100%;
+    max-height: 100%;
+    cursor: crosshair;
+    border-radius: 10px;
+  }
+
+  .cert-preview-image {
+    width: 100%;
+    height: auto;
+    max-height: none;
+    object-fit: cover;
+    border-radius: 9px;
+    background: #fff;
+    display: block;
+  }
+
+  .cert-preview-sample {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 1rem;
+    font-family: "Montserrat Bold", "Montserrat", Arial, sans-serif;
+    font-weight: 700;
+    line-height: 1;
+    color: #321812;
+    white-space: nowrap;
+    pointer-events: none;
+    z-index: 2;
+  }
+
+  .cert-preview-empty {
+    margin: 0;
+    padding: 0.6rem 0.75rem;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+  }
+
+  .cert-crosshair {
+    position: absolute;
+    width: 20px;
+    height: 20px;
+    border: 2px solid rgba(45, 108, 223, 0.6);
+    border-radius: 50%;
+    pointer-events: none;
+    transform: translate(-50%, -50%);
+  }
+
+  .cert-crosshair::before,
+  .cert-crosshair::after {
+    content: '';
+    position: absolute;
+    background: rgba(45, 108, 223, 0.6);
+  }
+
+  .cert-crosshair::before {
+    width: 1px;
+    height: 100%;
+    left: 50%;
+    top: 0;
+    transform: translateX(-50%);
+  }
+
+  .cert-crosshair::after {
+    width: 100%;
+    height: 1px;
+    top: 50%;
+    left: 0;
+    transform: translateY(-50%);
+  }
+
+  /* ── Responsive adjustments ───────────────────────────────── */
+
+  @media (max-width: 1024px) {
+    .cert-config-layout {
+      margin-bottom: 0.75rem;
+    }
+  }
+
+  @media (max-width: 768px) {
+    .admin-main {
+      padding: 1.5rem 1rem;
+    }
+  }
+

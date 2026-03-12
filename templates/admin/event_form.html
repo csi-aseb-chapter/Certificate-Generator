@@ -56,46 +56,143 @@
             <p class="field-hint">Lowercase letters, numbers, and hyphens only. Cannot be changed after creation.</p>
             {% endif %}
 
-            <label for="validation_type">Validation Type</label>
-            <select id="validation_type" name="validation_type" class="form-select">
-              <option value="player_team"
-                {{ 'selected' if (not event or event.validation_type == 'player_team') else '' }}>
-                Player + Team &nbsp;(CSV columns: <code>player</code>, <code>team</code>)
-              </option>
-              <option value="name_only"
-                {{ 'selected' if event and event.validation_type == 'name_only' else '' }}>
-                Name Only &nbsp;(CSV column: <code>name</code>)
-              </option>
-            </select>
+            <!-- Validation Type Selection (RADIO BUTTONS) -->
+            <fieldset class="validation-type-group">
+              <legend>Validation Type</legend>
+              <label class="validation-option">
+                <input type="radio" name="validation_type" value="player_team"
+                  {{ 'checked' if (not event or event.validation_type == 'player_team') else '' }} />
+                <strong>Player + Team</strong>
+                <span class="validation-desc">Participants must match both player name and team.</span>
+                <span class="validation-csv">CSV columns: <code>player</code>, <code>team</code></span>
+              </label>
+              <label class="validation-option">
+                <input type="radio" name="validation_type" value="name_only"
+                  {{ 'checked' if event and event.validation_type == 'name_only' else '' }} />
+                <strong>Name Only</strong>
+                <span class="validation-desc">Participants are validated by name only (no team).</span>
+                <span class="validation-csv">CSV column: <code>name</code></span>
+              </label>
+              <label class="validation-option">
+                <input type="radio" name="validation_type" value="email"
+                  {{ 'checked' if event and event.validation_type == 'email' else '' }} />
+                <strong>Email</strong>
+                <span class="validation-desc">Participants are validated by email.</span>
+                <span class="validation-csv">CSV column: <code>email</code></span>
+              </label>
+              <label class="validation-option">
+                <input type="radio" name="validation_type" value="badge_id"
+                  {{ 'checked' if event and event.validation_type == 'badge_id' else '' }} />
+                <strong>Badge / ID</strong>
+                <span class="validation-desc">Participants are validated by badge or ID number.</span>
+                <span class="validation-csv">CSV one of: <code>id</code>, <code>badge_id</code>, <code>badge_number</code></span>
+              </label>
+              <label class="validation-option">
+                <input type="radio" name="validation_type" value="custom"
+                  {{ 'checked' if event and event.validation_type == 'custom' else '' }} />
+                <strong>Custom Fields</strong>
+                <span class="validation-desc">Validate using multiple CSV columns selected below.</span>
+                <span class="validation-csv">CSV: select one or more columns</span>
+              </label>
+              <label class="validation-option">
+                <input type="radio" name="validation_type" value="none"
+                  {{ 'checked' if event and event.validation_type == 'none' else '' }} />
+                <strong>No Validation</strong>
+                <span class="validation-desc">Anyone can request a certificate; no participant checks.</span>
+                <span class="validation-csv">CSV optional</span>
+              </label>
+            </fieldset>
 
-            <p class="field-hint" style="margin-top:1rem">Name text position &amp; style on the certificate:</p>
-            <div class="fields-row">
-              <div>
-                <label for="text_x">X position (px)</label>
-                <input id="text_x" name="text_x" type="number" min="0"
-                  value="{{ event.text_x if event else 1789 }}" />
+            <div class="custom-columns-panel" id="customFieldsPanel">
+              <h3>Custom Validation Columns</h3>
+              {% if csv_columns is defined and csv_columns %}
+              <p class="field-hint">Used only when <strong>Custom Fields</strong> is selected.</p>
+              <div class="custom-columns-grid">
+                {% for col in csv_columns %}
+                <label class="custom-column-option">
+                  <input type="checkbox" name="custom_fields" value="{{ col }}"
+                    {{ 'checked' if event and event.custom_fields and (col in event.custom_fields) else '' }} />
+                  <span>{{ col }}</span>
+                </label>
+                {% endfor %}
               </div>
-              <div>
-                <label for="text_y">Y position (px)</label>
-                <input id="text_y" name="text_y" type="number" min="0"
-                  value="{{ event.text_y if event else 1440 }}" />
-              </div>
-              <div>
-                <label for="font_size">Font size (px)</label>
-                <input id="font_size" name="font_size" type="number" min="8"
-                  value="{{ event.font_size if event else 100 }}" />
-              </div>
-              <div>
-                <label for="font_color">Font color</label>
-                {% if event and event.font_color %}
-                  {% set fc = event.font_color %}
-                  <input id="font_color" name="font_color" type="color"
-                    value="#{{ '%02x%02x%02x' % (fc[0], fc[1], fc[2]) }}" />
-                {% else %}
-                  <input id="font_color" name="font_color" type="color" value="#321812" />
+              {% else %}
+              <p class="field-hint">Upload CSV first to choose custom columns.</p>
+              {% endif %}
+            </div>
+
+            <p class="field-hint">Name text position &amp; style on the certificate:</p>
+            
+            <!-- Certificate Preview Layout with Canvas -->
+            <div class="cert-config-layout">
+              <div class="cert-config-inputs">
+                <div class="input-pair">
+                  <div>
+                    <label for="text_x">X position (px)</label>
+                    <input id="text_x" name="text_x" class="coord-input" type="number" min="0"
+                      value="{{ event.text_x if event else 1789 }}" />
+                  </div>
+                  <div>
+                    <label for="text_y">Y position (px)</label>
+                    <input id="text_y" name="text_y" class="coord-input" type="number" min="0"
+                      value="{{ event.text_y if event else 1440 }}" />
+                  </div>
+                </div>
+                <div class="input-pair">
+                  <div>
+                    <label for="font_size">Font size (px)</label>
+                    <input id="font_size" name="font_size" class="coord-input" type="number" min="8"
+                      value="{{ event.font_size if event else 100 }}" />
+                  </div>
+                  <div>
+                    <label for="font_color">Font color</label>
+                    {% if event and event.font_color %}
+                      {% set fc = event.font_color %}
+                      <input id="font_color" name="font_color" type="color"
+                        value="#{{ '%02x%02x%02x' % (fc[0], fc[1], fc[2]) }}" />
+                    {% else %}
+                      <input id="font_color" name="font_color" type="color" value="#321812" />
+                    {% endif %}
+                  </div>
+                </div>
+                {% if not is_new and has_template %}
+                <div>
+                  <label for="preview_sample_text">Preview sample text</label>
+                  <input
+                    id="preview_sample_text"
+                    class="coord-input"
+                    type="text"
+                    value="Sample Text"
+                    placeholder="Type sample text for mini preview"
+                    maxlength="80"
+                  />
+                </div>
                 {% endif %}
               </div>
             </div>
+
+            {% if not is_new %}
+            {% if has_template %}
+            <div class="cert-preview-area" id="certPreviewContainer">
+              <div
+                class="cert-preview-media"
+                id="certPreviewMedia"
+                data-template-url="{{ url_for('admin_template_preview', slug=event.slug) }}"
+              >
+                <canvas
+                  id="certPreviewCanvas"
+                  class="cert-preview-canvas"
+                  aria-label="Certificate template preview"
+                ></canvas>
+              </div>
+            </div>
+            {% else %}
+            <p class="field-hint cert-preview-empty">Upload a certificate template to see the live preview here.</p>
+            {% endif %}
+            <a href="{{ url_for('admin_coordinate_editor', slug=event.slug) }}" class="button-link" style="width: 100%; text-align: center; margin-top: 0.75rem;">
+              Live Preview Editor
+            </a>
+            {% endif %}
 
             <button type="submit">{{ 'Create Event' if is_new else 'Save Settings' }}</button>
           </form>
@@ -117,8 +214,8 @@
             enctype="multipart/form-data"
             class="form admin-form"
           >
-            <label for="template_file">{{ 'Replace template' if has_template else 'Upload template' }} (PNG)</label>
-            <input id="template_file" name="template_file" type="file" accept=".png,image/png" required />
+            <label for="template_file">{{ 'Replace template' if has_template else 'Upload template' }} (PNG, JPG, GIF, WebP)</label>
+            <input id="template_file" name="template_file" type="file" accept=".png,.jpg,.jpeg,.gif,.webp,image/png,image/jpeg,image/gif,image/webp" required />
             <p class="field-hint">The participant's name will be printed at the X/Y coordinates configured above.</p>
             <button type="submit">{{ 'Replace Template' if has_template else 'Upload Template' }}</button>
           </form>
@@ -143,6 +240,16 @@
             <p class="field-hint">
               {% if event.validation_type == 'player_team' %}
               Required columns: <code>player</code>, <code>team</code>
+              {% elif event.validation_type == 'name_only' %}
+              Required column: <code>name</code>
+              {% elif event.validation_type == 'email' %}
+              Required column: <code>email</code>
+              {% elif event.validation_type == 'badge_id' %}
+              Required one of: <code>id</code>, <code>badge_id</code>, <code>badge_number</code>
+              {% elif event.validation_type == 'custom' %}
+              Required: all selected custom fields above
+              {% elif event.validation_type == 'none' %}
+              CSV is optional for this mode
               {% else %}
               Required column: <code>name</code>
               {% endif %}
@@ -187,6 +294,107 @@
           .replace(/[^a-z0-9]+/g, '-')
           .replace(/^-+|-+$/g, '');
       });
+
+      const customPanel = document.getElementById('customFieldsPanel');
+      const validationInputs = document.querySelectorAll('input[name="validation_type"]');
+      function toggleCustomPanel() {
+        const selected = document.querySelector('input[name="validation_type"]:checked');
+        if (!customPanel || !selected) return;
+        customPanel.classList.toggle('is-visible', selected.value === 'custom');
+      }
+      validationInputs.forEach((input) => input.addEventListener('change', toggleCustomPanel));
+      toggleCustomPanel();
+    </script>
+    {% else %}
+    <script>
+      const customPanelEdit = document.getElementById('customFieldsPanel');
+      const validationInputsEdit = document.querySelectorAll('input[name="validation_type"]');
+      function toggleCustomPanelEdit() {
+        const selected = document.querySelector('input[name="validation_type"]:checked');
+        if (!customPanelEdit || !selected) return;
+        customPanelEdit.classList.toggle('is-visible', selected.value === 'custom');
+      }
+      validationInputsEdit.forEach((input) => input.addEventListener('change', toggleCustomPanelEdit));
+      toggleCustomPanelEdit();
+
+      const previewMedia = document.getElementById('certPreviewMedia');
+      const previewCanvas = document.getElementById('certPreviewCanvas');
+      const previewCtx = previewCanvas ? previewCanvas.getContext('2d') : null;
+      const textXInput = document.getElementById('text_x');
+      const textYInput = document.getElementById('text_y');
+      const fontSizeInput = document.getElementById('font_size');
+      const fontColorInput = document.getElementById('font_color');
+      const previewSampleInput = document.getElementById('preview_sample_text');
+      let previewTemplateImage = null;
+      let previewRaf = null;
+
+      function updateSmallPreviewSample() {
+        if (!previewMedia || !previewCanvas || !previewCtx || !previewTemplateImage || !textXInput || !textYInput || !fontSizeInput || !fontColorInput) {
+          return;
+        }
+
+        const naturalWidth = previewTemplateImage.width;
+        const naturalHeight = previewTemplateImage.height;
+        const displayWidth = previewMedia.clientWidth;
+
+        if (!naturalWidth || !naturalHeight || !displayWidth) {
+          return;
+        }
+
+        const displayHeight = (naturalHeight / naturalWidth) * displayWidth;
+        const scale = displayWidth / naturalWidth;
+        const dpr = window.devicePixelRatio || 1;
+
+        previewCanvas.style.width = `${displayWidth}px`;
+        previewCanvas.style.height = `${displayHeight}px`;
+        previewCanvas.width = Math.round(displayWidth * dpr);
+        previewCanvas.height = Math.round(displayHeight * dpr);
+        previewCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        previewCtx.clearRect(0, 0, displayWidth, displayHeight);
+        previewCtx.drawImage(previewTemplateImage, 0, 0, displayWidth, displayHeight);
+
+        const x = Number(textXInput.value || 0);
+        const y = Number(textYInput.value || 0);
+        const fontSize = Number(fontSizeInput.value || 24);
+        const displayText = (previewSampleInput && previewSampleInput.value.trim())
+          ? previewSampleInput.value
+          : 'Sample Text';
+
+        previewCtx.fillStyle = fontColorInput.value || '#321812';
+        previewCtx.font = `bold ${Math.max(10, fontSize * scale)}px "Montserrat Bold", Arial`;
+        previewCtx.textAlign = 'center';
+        previewCtx.textBaseline = 'middle';
+        previewCtx.fillText(displayText, x * scale, y * scale);
+      }
+
+      function scheduleSmallPreviewUpdate() {
+        if (previewRaf) {
+          cancelAnimationFrame(previewRaf);
+        }
+        previewRaf = requestAnimationFrame(() => {
+          updateSmallPreviewSample();
+          previewRaf = null;
+        });
+      }
+
+      [textXInput, textYInput, fontSizeInput, fontColorInput, previewSampleInput].forEach((el) => {
+        if (el) {
+          el.addEventListener('input', scheduleSmallPreviewUpdate);
+        }
+      });
+
+      if (previewMedia) {
+        const templateUrl = previewMedia.dataset.templateUrl;
+        if (templateUrl) {
+          const img = new Image();
+          img.onload = () => {
+            previewTemplateImage = img;
+            scheduleSmallPreviewUpdate();
+          };
+          img.src = templateUrl;
+        }
+      }
+      window.addEventListener('resize', scheduleSmallPreviewUpdate);
     </script>
     {% endif %}
   </body>
