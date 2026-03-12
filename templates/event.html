@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{{ event.name }} – Certificate Download</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
+  </head>
+  <body>
+    <main class="page">
+      <section class="card">
+        <h1>{{ event.name }}</h1>
+        <p class="card-subtitle">Certificate Download</p>
+
+        {% if error %}
+        <p class="error">{{ error }}</p>
+        {% endif %}
+
+        <form action="{{ url_for('download_certificate', slug=event.slug) }}" method="post" class="form">
+          <label for="registration_name">Registration Name</label>
+          <input
+            id="registration_name"
+            name="registration_name"
+            type="text"
+            placeholder="Enter your registration name"
+            required
+          />
+
+          {% if event.validation_type == 'player_team' %}
+          <label for="team_name">Team Name</label>
+          <input
+            id="team_name"
+            name="team_name"
+            type="text"
+            placeholder="Enter your team name"
+            list="team-options"
+            required
+          />
+          <datalist id="team-options">
+            {% for team in teams %}
+            <option value="{{ team }}"></option>
+            {% endfor %}
+          </datalist>
+          {% endif %}
+
+          <label for="cert_name">Name to Print on Certificate</label>
+          <input
+            id="cert_name"
+            name="cert_name"
+            type="text"
+            placeholder="Enter the name to display"
+            required
+          />
+
+          <button type="submit">Generate Certificate</button>
+        </form>
+
+        <div class="back-link-row">
+          <a href="{{ url_for('home') }}" class="back-link">← All Events</a>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>

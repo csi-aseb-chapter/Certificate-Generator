@@ -9,19 +9,24 @@
   <body>
     <main class="page">
       <section class="card preview-card">
-        <h1>Certificate Preview</h1>
+        {% if event %}<h1>{{ event.name }}</h1>{% else %}<h1>Certificate Preview</h1>{% endif %}
+        <p class="card-subtitle">Your certificate is ready, {{ cert_name }}!</p>
 
         <div class="preview-frame">
           <img
-            src="{{ url_for('preview_image', cert_id=cert_id, cert_name=cert_name) }}"
+            src="{{ url_for('preview_image', cert_id=cert_id) }}"
             alt="Generated certificate preview"
             class="preview-image"
           />
         </div>
 
         <div class="preview-actions">
-          <a class="button-link" href="{{ url_for('download_file', cert_id=cert_id, cert_name=cert_name) }}">Download Certificate</a>
+          <a class="button-link" href="{{ url_for('download_file', cert_id=cert_id) }}">Download Certificate</a>
+          {% if event %}
+          <a class="button-link secondary" href="{{ url_for('event_page', slug=event.slug) }}">Back</a>
+          {% else %}
           <a class="button-link secondary" href="{{ url_for('home') }}">Back</a>
+          {% endif %}
         </div>
       </section>
     </main>

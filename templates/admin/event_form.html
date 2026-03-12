@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{{ 'New Event' if is_new else 'Edit: ' + event.name }} – Admin</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
+  </head>
+  <body>
+    <div class="admin-layout">
+      <header class="admin-header">
+        <span class="admin-header-title">Certificate Portal &mdash; Admin</span>
+        <div class="admin-header-actions">
+          <a href="{{ url_for('admin_dashboard') }}" class="admin-nav-link">← Dashboard</a>
+          <form action="{{ url_for('admin_logout') }}" method="post" style="display:inline">
+            <button class="admin-nav-btn" type="submit">Log Out</button>
+          </form>
+        </div>
+      </header>
+
+      <main class="admin-main">
+        <h2>{{ 'Create New Event' if is_new else 'Edit: ' + event.name }}</h2>
+
+        {% if error %}
+        <p class="error">{{ error }}</p>
+        {% endif %}
+        {% if success is defined and success %}
+        <p class="success-msg">{{ success }}</p>
+        {% endif %}
+
+        <!-- ── Event Settings ── -->
+        <div class="admin-form-section">
+          <h3>Event Settings</h3>
+          <form
+            action="{{ url_for('admin_create_event') if is_new else url_for('admin_update_config', slug=event.slug) }}"
+            method="post"
+            class="form admin-form"
+          >
+            <label for="name">Event Name</label>
+            <input
+              id="name" name="name" type="text"
+              value="{{ event.name if event else '' }}"
+              placeholder="e.g. Hackathon 2026"
+              required
+            />
+
+            {% if is_new %}
+            <label for="slug">Slug (URL identifier)</label>
+            <input
+              id="slug" name="slug" type="text"
+              value="{{ event.slug if event else '' }}"
+              placeholder="e.g. hackathon-2026"
+              pattern="[a-z0-9][a-z0-9\-]*"
+              required
+            />
+            <p class="field-hint">Lowercase letters, numbers, and hyphens only. Cannot be changed after creation.</p>
+            {% endif %}
+
+            <label for="validation_type">Validation Type</label>
+            <select id="validation_type" name="validation_type" class="form-select">
+              <option value="player_team"
+                {{ 'selected' if (not event or event.validation_type == 'player_team') else '' }}>
+                Player + Team &nbsp;(CSV columns: <code>player</code>, <code>team</code>)
+              </option>
+              <option value="name_only"
+                {{ 'selected' if event and event.validation_type == 'name_only' else '' }}>
+                Name Only &nbsp;(CSV column: <code>name</code>)
+              </option>
+            </select>
+
+            <p class="field-hint" style="margin-top:1rem">Name text position &amp; style on the certificate:</p>
+            <div class="fields-row">
+              <div>
+                <label for="text_x">X position (px)</label>
+                <input id="text_x" name="text_x" type="number" min="0"
+                  value="{{ event.text_x if event else 1789 }}" />
+              </div>
+              <div>
+                <label for="text_y">Y position (px)</label>
+                <input id="text_y" name="text_y" type="number" min="0"
+                  value="{{ event.text_y if event else 1440 }}" />
+              </div>
+              <div>
+                <label for="font_size">Font size (px)</label>
+                <input id="font_size" name="font_size" type="number" min="8"
+                  value="{{ event.font_size if event else 100 }}" />
+              </div>
+              <div>
+                <label for="font_color">Font color</label>
+                {% if event and event.font_color %}
+                  {% set fc = event.font_color %}
+                  <input id="font_color" name="font_color" type="color"
+                    value="#{{ '%02x%02x%02x' % (fc[0], fc[1], fc[2]) }}" />
+                {% else %}
+                  <input id="font_color" name="font_color" type="color" value="#321812" />
+                {% endif %}
+              </div>
+            </div>
+
+            <button type="submit">{{ 'Create Event' if is_new else 'Save Settings' }}</button>
+          </form>
+        </div>
+
+        {% if not is_new %}
+
+        <!-- ── Certificate Template ── -->
+        <div class="admin-form-section">
+          <h3>Certificate Template</h3>
+          {% if has_template %}
+          <p class="field-hint success-text">✓ Template is uploaded.</p>
+          {% else %}
+          <p class="field-hint warn-text">⚠ No template uploaded yet — the event cannot go live without one.</p>
+          {% endif %}
+          <form
+            action="{{ url_for('admin_upload_template', slug=event.slug) }}"
+            method="post"
+            enctype="multipart/form-data"
+            class="form admin-form"
+          >
+            <label for="template_file">{{ 'Replace template' if has_template else 'Upload template' }} (PNG)</label>
+            <input id="template_file" name="template_file" type="file" accept=".png,image/png" required />
+            <p class="field-hint">The participant's name will be printed at the X/Y coordinates configured above.</p>
+            <button type="submit">{{ 'Replace Template' if has_template else 'Upload Template' }}</button>
+          </form>
+        </div>
+
+        <!-- ── Participants CSV ── -->
+        <div class="admin-form-section">
+          <h3>Participants CSV</h3>
+          {% if has_csv %}
+          <p class="field-hint success-text">✓ Participants CSV is uploaded.</p>
+          {% else %}
+          <p class="field-hint warn-text">⚠ No CSV uploaded yet — certificate requests will fail validation.</p>
+          {% endif %}
+          <form
+            action="{{ url_for('admin_upload_csv', slug=event.slug) }}"
+            method="post"
+            enctype="multipart/form-data"
+            class="form admin-form"
+          >
+            <label for="csv_file">{{ 'Replace CSV' if has_csv else 'Upload CSV' }}</label>
+            <input id="csv_file" name="csv_file" type="file" accept=".csv,text/csv" required />
+            <p class="field-hint">
+              {% if event.validation_type == 'player_team' %}
+              Required columns: <code>player</code>, <code>team</code>
+              {% else %}
+              Required column: <code>name</code>
+              {% endif %}
+            </p>
+            <button type="submit">{{ 'Replace CSV' if has_csv else 'Upload CSV' }}</button>
+          </form>
+        </div>
+
+        <!-- ── Visibility / Activate ── -->
+        <div class="admin-form-section">
+          <h3>Visibility</h3>
+          <p class="field-hint">
+            Public URL:
+            <a href="{{ url_for('event_page', slug=event.slug) }}" target="_blank">
+              /events/{{ event.slug }}
+            </a>
+          </p>
+          <form action="{{ url_for('admin_toggle_event', slug=event.slug) }}" method="post">
+            {% if event.active %}
+            <button type="submit" class="button-link danger">Deactivate Event</button>
+            {% else %}
+            <button type="submit" class="button-link">Activate Event</button>
+            {% endif %}
+          </form>
+        </div>
+
+        {% endif %}
+      </main>
+    </div>
+
+    {% if is_new %}
+    <script>
+      // Auto-generate slug from name while user types
+      const nameEl = document.getElementById('name');
+      const slugEl = document.getElementById('slug');
+      let userEditedSlug = false;
+      slugEl.addEventListener('input', () => { userEditedSlug = true; });
+      nameEl.addEventListener('input', () => {
+        if (userEditedSlug) return;
+        slugEl.value = nameEl.value
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, '-')
+          .replace(/^-+|-+$/g, '');
+      });
+    </script>
+    {% endif %}
+  </body>
+</html>
