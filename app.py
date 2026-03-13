@@ -9,7 +9,7 @@ from functools import wraps
 from io import BytesIO
 from uuid import uuid4
 
-from flask import Flask, redirect, render_template, request, send_file, session, url_for
+from flask import Flask, jsonify, redirect, render_template, request, send_file, session, url_for
 from PIL import Image, ImageDraw, ImageFont
 from werkzeug.utils import secure_filename
 from dotenv import load_dotenv
@@ -358,6 +358,25 @@ def load_cert_metadata(cert_id: str) -> dict | None:
 		return json.load(f)
 
 
+def build_render_metadata(cert_id: str) -> dict | None:
+	metadata = load_cert_metadata(cert_id)
+	if metadata is None:
+		return None
+	event_slug = metadata.get("event_slug", "")
+	event_config = load_event(event_slug) if event_slug else None
+	if event_config is None:
+		return metadata
+	render_metadata = dict(metadata)
+	for key, fallback in (
+		("text_x", 1789),
+		("text_y", 1440),
+		("font_size", 100),
+		("font_color", [50, 34, 24]),
+	):
+		render_metadata[key] = event_config.get(key, metadata.get(key, fallback))
+	return render_metadata
+
+
 def draw_name_on_image(image: Image.Image, metadata: dict) -> None:
 	draw = ImageDraw.Draw(image)
 	font = get_font(metadata.get("font_size", 100))
@@ -421,6 +440,17 @@ def _parse_color(value: str | None, fallback: list | None = None) -> list[int]:
 		except ValueError:
 			pass
 	return fallback
+
+
+def build_preview_metadata(event_config: dict, cert_name: str | None = None) -> dict:
+	return {
+		"event_slug": event_config.get("slug", ""),
+		"cert_name": (cert_name or "Sample Text").strip() or "Sample Text",
+		"text_x": _parse_int(request.args.get("text_x"), event_config.get("text_x", 1789)),
+		"text_y": _parse_int(request.args.get("text_y"), event_config.get("text_y", 1440)),
+		"font_size": _parse_int(request.args.get("font_size"), event_config.get("font_size", 100)),
+		"font_color": _parse_color(request.args.get("font_color"), event_config.get("font_color", [50, 34, 24])),
+	}
 
 
 # ─── Admin auth ───────────────────────────────────────────────────────────────
@@ -489,7 +519,7 @@ def preview_page(cert_id: str):
 def preview_image(cert_id: str):
 	if not re.match(r"^[a-f0-9]{32}$", cert_id):
 		return ("Not found", 404)
-	metadata = load_cert_metadata(cert_id)
+	metadata = build_render_metadata(cert_id)
 	if metadata is None or not os.path.exists(_cert_image_path(cert_id)):
 		return ("Not found", 404)
 	image = Image.open(_cert_image_path(cert_id)).convert("RGBA")
@@ -504,7 +534,7 @@ def preview_image(cert_id: str):
 def download_file(cert_id: str):
 	if not re.match(r"^[a-f0-9]{32}$", cert_id):
 		return ("Not found", 404)
-	metadata = load_cert_metadata(cert_id)
+	metadata = build_render_metadata(cert_id)
 	if metadata is None or not os.path.exists(_cert_image_path(cert_id)):
 		return ("Not found", 404)
 	image = Image.open(_cert_image_path(cert_id)).convert("RGBA")
@@ -622,6 +652,8 @@ def admin_update_config(slug: str):
 	config["font_size"] = _parse_int(request.form.get("font_size"), config.get("font_size", 100))
 	config["font_color"] = _parse_color(request.form.get("font_color"), config.get("font_color", [50, 34, 24]))
 	save_event_config(slug, config)
+	if request.headers.get("X-Requested-With") == "XMLHttpRequest":
+		return jsonify({"ok": True, "message": "Settings saved."})
 	return render_template("admin/event_form.html", event=config, is_new=False, success="Settings saved.",
 						   error=None, has_template=os.path.exists(_event_template_path(slug)),
 						   has_csv=os.path.exists(_event_csv_path(slug)),
@@ -773,6 +805,35 @@ def admin_template_preview(slug: str):
 	if not os.path.exists(template_path):
 		return "Template not found", 404
 	return send_file(template_path)
+
+
+@app.route("/admin/events/<slug>/render-preview", methods=["GET"])
+@require_admin
+def admin_render_preview(slug: str):
+	"""Render a preview with the same server-side Pillow path used for generated certificates."""
+	if not safe_slug(slug):
+		return "Not found", 404
+	config = load_event(slug)
+	if config is None:
+		return "Not found", 404
+	template_path = _event_template_path(slug)
+	if not os.path.exists(template_path):
+		return "Template not found", 404
+	image = Image.open(template_path).convert("RGBA")
+	metadata = build_preview_metadata(config, request.args.get("cert_name"))
+	draw_name_on_image(image, metadata)
+	output = BytesIO()
+	image.save(output, format="PNG")
+	output.seek(0)
+	return send_file(output, mimetype="image/png")
+
+
+@app.route("/assets/fonts/montserrat-bold.ttf", methods=["GET"])
+def montserrat_bold_font():
+	"""Serve the same font file used by PIL so browser previews match generated files."""
+	if not os.path.exists(FONT_PATH):
+		return "Font not found", 404
+	return send_file(FONT_PATH, mimetype="font/ttf")
 
 
 # ─── Entry point ──────────────────────────────────────────────────────────────

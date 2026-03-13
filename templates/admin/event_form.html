@@ -5,6 +5,13 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>{{ 'New Event' if is_new else 'Edit: ' + event.name }} – Admin</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
+    <style>
+      @font-face {
+        font-family: 'Montserrat Bold';
+        src: url('{{ url_for("montserrat_bold_font") }}') format('truetype');
+        font-weight: 700;
+      }
+    </style>
   </head>
   <body>
     <div class="admin-layout">
@@ -20,6 +27,9 @@
 
       <main class="admin-main">
         <h2>{{ 'Create New Event' if is_new else 'Edit: ' + event.name }}</h2>
+        {% if not is_new %}
+        <p class="field-hint" id="configSaveStatus">Settings autosave after changes.</p>
+        {% endif %}
 
         {% if error %}
         <p class="error">{{ error }}</p>
@@ -177,13 +187,13 @@
               <div
                 class="cert-preview-media"
                 id="certPreviewMedia"
-                data-template-url="{{ url_for('admin_template_preview', slug=event.slug) }}"
+                data-render-url="{{ url_for('admin_render_preview', slug=event.slug) }}"
               >
-                <canvas
-                  id="certPreviewCanvas"
-                  class="cert-preview-canvas"
-                  aria-label="Certificate template preview"
-                ></canvas>
+                <img
+                  id="certPreviewImage"
+                  class="cert-preview-image"
+                  alt="Certificate template preview"
+                />
               </div>
             </div>
             {% else %}
@@ -309,6 +319,8 @@
     <script>
       const customPanelEdit = document.getElementById('customFieldsPanel');
       const validationInputsEdit = document.querySelectorAll('input[name="validation_type"]');
+      const editConfigForm = document.querySelector('form[action$="/config"]');
+      const editConfigStatus = document.getElementById('configSaveStatus');
       function toggleCustomPanelEdit() {
         const selected = document.querySelector('input[name="validation_type"]:checked');
         if (!customPanelEdit || !selected) return;
@@ -318,53 +330,91 @@
       toggleCustomPanelEdit();
 
       const previewMedia = document.getElementById('certPreviewMedia');
-      const previewCanvas = document.getElementById('certPreviewCanvas');
-      const previewCtx = previewCanvas ? previewCanvas.getContext('2d') : null;
+      const previewImage = document.getElementById('certPreviewImage');
       const textXInput = document.getElementById('text_x');
       const textYInput = document.getElementById('text_y');
       const fontSizeInput = document.getElementById('font_size');
       const fontColorInput = document.getElementById('font_color');
       const previewSampleInput = document.getElementById('preview_sample_text');
-      let previewTemplateImage = null;
       let previewRaf = null;
+      let editAutosaveTimer = null;
+      let editAutosaveInFlight = false;
+      let editAutosaveQueued = false;
+
+      function setEditSaveStatus(message, isError) {
+        if (!editConfigStatus) return;
+        editConfigStatus.textContent = message;
+        editConfigStatus.classList.toggle('warn-text', Boolean(isError));
+        editConfigStatus.classList.toggle('success-text', !isError && /saved/i.test(message));
+      }
+
+      function runEditAutosave() {
+        if (!editConfigForm) return;
+        if (editAutosaveInFlight) {
+          editAutosaveQueued = true;
+          return;
+        }
+
+        editAutosaveInFlight = true;
+        editAutosaveQueued = false;
+        setEditSaveStatus('Saving changes...', false);
+
+        fetch(editConfigForm.action, {
+          method: 'POST',
+          body: new FormData(editConfigForm),
+          headers: {
+            'X-Requested-With': 'XMLHttpRequest'
+          }
+        })
+          .then(async (response) => {
+            if (!response.ok) {
+              throw new Error('Save failed');
+            }
+            return response.json();
+          })
+          .then(() => {
+            setEditSaveStatus('Settings saved automatically.', false);
+          })
+          .catch(() => {
+            setEditSaveStatus('Autosave failed. Use Save Settings to retry.', true);
+          })
+          .finally(() => {
+            editAutosaveInFlight = false;
+            if (editAutosaveQueued) {
+              runEditAutosave();
+            }
+          });
+      }
+
+      function scheduleEditAutosave() {
+        if (!editConfigForm) return;
+        if (editAutosaveTimer) {
+          clearTimeout(editAutosaveTimer);
+        }
+        setEditSaveStatus('Unsaved changes...', false);
+        editAutosaveTimer = setTimeout(runEditAutosave, 500);
+      }
+
+      function buildPreviewUrl() {
+        if (!previewMedia) {
+          return '';
+        }
+        const params = new URLSearchParams({
+          cert_name: (previewSampleInput && previewSampleInput.value.trim()) || 'Sample Text',
+          text_x: textXInput.value || '0',
+          text_y: textYInput.value || '0',
+          font_size: fontSizeInput.value || '100',
+          font_color: fontColorInput.value || '#321812',
+          t: String(Date.now())
+        });
+        return `${previewMedia.dataset.renderUrl}?${params.toString()}`;
+      }
 
       function updateSmallPreviewSample() {
-        if (!previewMedia || !previewCanvas || !previewCtx || !previewTemplateImage || !textXInput || !textYInput || !fontSizeInput || !fontColorInput) {
+        if (!previewImage || !previewMedia || !textXInput || !textYInput || !fontSizeInput || !fontColorInput) {
           return;
         }
-
-        const naturalWidth = previewTemplateImage.width;
-        const naturalHeight = previewTemplateImage.height;
-        const displayWidth = previewMedia.clientWidth;
-
-        if (!naturalWidth || !naturalHeight || !displayWidth) {
-          return;
-        }
-
-        const displayHeight = (naturalHeight / naturalWidth) * displayWidth;
-        const scale = displayWidth / naturalWidth;
-        const dpr = window.devicePixelRatio || 1;
-
-        previewCanvas.style.width = `${displayWidth}px`;
-        previewCanvas.style.height = `${displayHeight}px`;
-        previewCanvas.width = Math.round(displayWidth * dpr);
-        previewCanvas.height = Math.round(displayHeight * dpr);
-        previewCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
-        previewCtx.clearRect(0, 0, displayWidth, displayHeight);
-        previewCtx.drawImage(previewTemplateImage, 0, 0, displayWidth, displayHeight);
-
-        const x = Number(textXInput.value || 0);
-        const y = Number(textYInput.value || 0);
-        const fontSize = Number(fontSizeInput.value || 24);
-        const displayText = (previewSampleInput && previewSampleInput.value.trim())
-          ? previewSampleInput.value
-          : 'Sample Text';
-
-        previewCtx.fillStyle = fontColorInput.value || '#321812';
-        previewCtx.font = `bold ${Math.max(10, fontSize * scale)}px "Montserrat Bold", Arial`;
-        previewCtx.textAlign = 'center';
-        previewCtx.textBaseline = 'middle';
-        previewCtx.fillText(displayText, x * scale, y * scale);
+        previewImage.src = buildPreviewUrl();
       }
 
       function scheduleSmallPreviewUpdate() {
@@ -383,16 +433,18 @@
         }
       });
 
-      if (previewMedia) {
-        const templateUrl = previewMedia.dataset.templateUrl;
-        if (templateUrl) {
-          const img = new Image();
-          img.onload = () => {
-            previewTemplateImage = img;
-            scheduleSmallPreviewUpdate();
-          };
-          img.src = templateUrl;
-        }
+      if (editConfigForm) {
+        editConfigForm.querySelectorAll('input[name], select[name], textarea[name]').forEach((input) => {
+          if (input.type === 'file') return;
+          const eventName = input.type === 'checkbox' || input.type === 'radio' || input.type === 'color'
+            ? 'change'
+            : 'input';
+          input.addEventListener(eventName, scheduleEditAutosave);
+        });
+      }
+
+      if (previewMedia && previewImage) {
+        scheduleSmallPreviewUpdate();
       }
       window.addEventListener('resize', scheduleSmallPreviewUpdate);
     </script>

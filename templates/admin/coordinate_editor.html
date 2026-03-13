@@ -8,7 +8,7 @@
     <style>
       @font-face {
         font-family: 'Montserrat Bold';
-        src: url('{{ url_for("static", filename="fonts/Montserrat-Bold.ttf") }}') format('truetype');
+        src: url('{{ url_for("montserrat_bold_font") }}') format('truetype');
         font-weight: 700;
       }
       body {
@@ -17,11 +17,13 @@
       .coord-editor-layout {
         display: flex;
         height: 100vh;
-        background: #f4f6fb;
+        background:
+          radial-gradient(circle at top, rgba(97, 168, 255, 0.18), transparent 32%),
+          linear-gradient(180deg, var(--bg-accent) 0%, var(--bg) 100%);
       }
       .coord-editor-canvas {
         flex: 1;
-        background: #fff;
+        background: rgba(7, 17, 31, 0.45);
         display: flex;
         align-items: center;
         justify-content: center;
@@ -33,17 +35,18 @@
         max-width: 100%;
         max-height: 100%;
         cursor: crosshair;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        box-shadow: 0 20px 48px rgba(0, 0, 0, 0.38);
         border-radius: 8px;
       }
       .coord-editor-panel {
         width: 300px;
-        background: #fff;
-        border-left: 1px solid #e2e8f0;
+        background: rgba(13, 24, 42, 0.96);
+        border-left: 1px solid var(--border);
         padding: 1.5rem;
         overflow-y: auto;
         display: flex;
         flex-direction: column;
+        backdrop-filter: blur(16px);
       }
       .coord-editor-panel h3 {
         margin: 0 0 1rem;
@@ -61,15 +64,17 @@
       }
       .coord-editor-control input {
         width: 100%;
-        border: 1px solid #d6dbe6;
+        border: 1px solid var(--border);
         border-radius: 8px;
         padding: 0.6rem;
         font-size: 0.95rem;
+        background: var(--surface);
+        color: var(--text);
       }
       .coord-editor-control input:focus {
         outline: none;
         border-color: var(--accent);
-        box-shadow: 0 0 0 3px rgba(45, 108, 223, 0.15);
+        box-shadow: 0 0 0 3px var(--accent-soft);
       }
       .coord-editor-control input[type="color"] {
         appearance: none;
@@ -112,16 +117,16 @@
         background: var(--accent-hover);
       }
       .coord-editor-btn.secondary {
-        background: #e2e8f0;
+        background: #31445f;
         color: var(--text);
       }
       .coord-editor-btn.secondary:hover {
-        background: #cbd5e1;
+        background: #3c5474;
       }
       .coord-info {
         font-size: 0.85rem;
         color: var(--muted);
-        background: #f8fafc;
+        background: rgba(16, 32, 56, 0.72);
         padding: 0.75rem;
         border-radius: 6px;
         margin-top: 1rem;
@@ -136,6 +141,7 @@
       </div>
       <div class="coord-editor-panel">
         <h3>Text Position</h3>
+        <p class="field-hint" id="coordSaveStatus">Settings autosave after changes.</p>
         <form id="editorForm" method="post" action="{{ url_for('admin_update_config', slug=event.slug) }}">
           <div class="coord-editor-control">
             <label for="text_x">X Position (px)</label>
@@ -191,7 +197,7 @@
           </div>
 
           <div class="coord-editor-actions">
-            <button type="submit" class="coord-editor-btn primary">✓ Save Changes</button>
+            <button type="button" id="saveEditorButton" class="coord-editor-btn primary">✓ Save Changes</button>
             <a href="{{ url_for('admin_edit_event', slug=event.slug) }}" class="coord-editor-btn secondary" style="text-align: center; text-decoration: none; color: var(--text);">← Back to Event</a>
           </div>
         </form>
@@ -208,6 +214,10 @@
       const fontSizeInput = document.getElementById('font_size');
       const fontColorInput = document.getElementById('font_color');
       const sampleTextInput = document.getElementById('sample_text');
+      const coordSaveStatus = document.getElementById('coordSaveStatus');
+      const saveEditorButton = document.getElementById('saveEditorButton');
+      const templatePreviewUrl = "{{ url_for('admin_template_preview', slug=event.slug) }}";
+      const sampleTextStorageKey = 'coord-editor-sample-text:{{ event.slug }}';
 
       let certImage = null;
       let maxCanvasWidth = 0;
@@ -217,6 +227,66 @@
       let isDragging = false;
       let dragOffsetX = 0;
       let dragOffsetY = 0;
+      let coordAutosaveTimer = null;
+      let coordAutosaveInFlight = false;
+      let coordAutosaveQueued = false;
+      const fontReadyPromise = document.fonts
+        ? document.fonts.load('700 32px "Montserrat Bold"').catch(() => undefined)
+        : Promise.resolve();
+
+      function setCoordSaveStatus(message, isError) {
+        if (!coordSaveStatus) return;
+        coordSaveStatus.textContent = message;
+        coordSaveStatus.classList.toggle('warn-text', Boolean(isError));
+        coordSaveStatus.classList.toggle('success-text', !isError && /saved/i.test(message));
+      }
+
+      function runCoordAutosave() {
+        if (coordAutosaveInFlight) {
+          coordAutosaveQueued = true;
+          return Promise.resolve(false);
+        }
+
+        coordAutosaveInFlight = true;
+        coordAutosaveQueued = false;
+        setCoordSaveStatus('Saving changes...', false);
+
+        return fetch(form.action, {
+          method: 'POST',
+          body: new FormData(form),
+          headers: {
+            'X-Requested-With': 'XMLHttpRequest'
+          }
+        })
+          .then(async (response) => {
+            if (!response.ok) {
+              throw new Error('Save failed');
+            }
+            return response.json();
+          })
+          .then(() => {
+            setCoordSaveStatus('Settings saved automatically.', false);
+            return true;
+          })
+          .catch(() => {
+            setCoordSaveStatus('Autosave failed. Use Save Changes to retry.', true);
+            return false;
+          })
+          .finally(() => {
+            coordAutosaveInFlight = false;
+            if (coordAutosaveQueued) {
+              runCoordAutosave();
+            }
+          });
+      }
+
+      function scheduleCoordAutosave() {
+        if (coordAutosaveTimer) {
+          clearTimeout(coordAutosaveTimer);
+        }
+        setCoordSaveStatus('Unsaved changes...', false);
+        coordAutosaveTimer = setTimeout(runCoordAutosave, 500);
+      }
 
       function resizeCanvas() {
         const container = canvas.parentElement;
@@ -226,28 +296,37 @@
       }
 
       function loadCertImage() {
-        const slug = '{{ event.slug }}';
-        const imgUrl = `/admin/events/${slug}/template-preview`;
-        fetch(imgUrl)
-          .then(r => {
-            if (!r.ok) throw new Error('Template not found');
-            return r.blob();
-          })
-          .then(blob => {
-            const url = URL.createObjectURL(blob);
-            const img = new Image();
-            img.onload = () => {
-              certImage = img;
-              resizeCanvas();
-            };
-            img.src = url;
-          })
-          .catch(() => {
-            ctx.fillStyle = '#999';
-            ctx.font = '20px "Montserrat Bold", Arial';
-            ctx.textAlign = 'center';
-            ctx.fillText('Template not found', canvas.width / 2, canvas.height / 2);
-          });
+        const img = new Image();
+        img.onload = () => {
+          certImage = img;
+          fontReadyPromise.finally(resizeCanvas);
+        };
+        img.onerror = () => {
+          certImage = null;
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+          ctx.fillStyle = '#999';
+          ctx.font = '20px "Montserrat Bold", Arial';
+          ctx.textAlign = 'center';
+          ctx.fillText('Preview not available', canvas.width / 2, canvas.height / 2);
+        };
+        img.src = `${templatePreviewUrl}?t=${Date.now()}`;
+      }
+
+      function persistSampleText() {
+        try {
+          sessionStorage.setItem(sampleTextStorageKey, sampleTextInput.value || '');
+        } catch (error) {
+        }
+      }
+
+      function restoreSampleText() {
+        try {
+          const storedValue = sessionStorage.getItem(sampleTextStorageKey);
+          if (storedValue !== null) {
+            sampleTextInput.value = storedValue;
+          }
+        } catch (error) {
+        }
       }
 
       function drawPreview() {
@@ -269,14 +348,14 @@
         canvas.width = drawWidth;
         canvas.height = drawHeight;
 
-        // Draw certificate image
+        // Draw certificate template image
         ctx.drawImage(certImage, 0, 0, drawWidth, drawHeight);
 
-        // Draw text position marker
         const x = parseInt(textXInput.value) * scaleX;
         const y = parseInt(textYInput.value) * scaleY;
         const size = parseInt(fontSizeInput.value) * scaleX / 2;
         const color = fontColorInput.value || '#321812';
+        const displayText = sampleTextInput.value.trim() || 'Sample Text';
 
         // Highlight the draggable area
         if (isDragging) {
@@ -301,14 +380,12 @@
         ctx.lineTo(x, y + size * 1.5);
         ctx.stroke();
 
-        // Sample text with Montserrat Bold
         ctx.fillStyle = color;
-        const fontSize = Math.max(12, parseInt(fontSizeInput.value) * scaleX);
-        ctx.font = `bold ${fontSize}px "Montserrat Bold", Arial`;
+        ctx.font = `bold ${Math.max(12, parseInt(fontSizeInput.value) * scaleX)}px "Montserrat Bold", Arial`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        const displayText = sampleTextInput.value.trim() || 'Sample Text';
         ctx.fillText(displayText, x, y);
+
       }
 
       // Handle canvas mousedown to start dragging
@@ -355,9 +432,13 @@
       canvas.addEventListener('mouseup', () => {
         isDragging = false;
         canvas.style.cursor = 'crosshair';
+        scheduleCoordAutosave();
       });
 
       canvas.addEventListener('mouseleave', () => {
+        if (isDragging) {
+          scheduleCoordAutosave();
+        }
         isDragging = false;
         canvas.style.cursor = 'crosshair';
       });
@@ -367,11 +448,45 @@
         input.addEventListener('input', drawPreview);
       });
 
+      sampleTextInput.addEventListener('input', persistSampleText);
+
+      if (saveEditorButton) {
+        saveEditorButton.addEventListener('click', async () => {
+          persistSampleText();
+          saveEditorButton.disabled = true;
+          const originalLabel = saveEditorButton.textContent;
+          saveEditorButton.textContent = 'Saving...';
+          try {
+            const didSave = await runCoordAutosave();
+            if (didSave) {
+              saveEditorButton.textContent = 'Saved';
+              window.setTimeout(() => {
+                saveEditorButton.textContent = originalLabel;
+              }, 900);
+            } else {
+              saveEditorButton.textContent = originalLabel;
+            }
+          } finally {
+            window.setTimeout(() => {
+              saveEditorButton.disabled = false;
+            }, 150);
+          }
+        });
+      }
+
+      [textXInput, textYInput, fontSizeInput].forEach(input => {
+        input.addEventListener('input', scheduleCoordAutosave);
+      });
+      fontColorInput.addEventListener('change', scheduleCoordAutosave);
+
       // Handle window resize
       window.addEventListener('resize', resizeCanvas);
 
       // Load template on page load
-      window.addEventListener('load', loadCertImage);
+      window.addEventListener('load', () => {
+        restoreSampleText();
+        loadCertImage();
+      });
     </script>
   </body>
 </html>

@@ -2,14 +2,16 @@
   "name": "git",
   "slug": "git",
   "active": true,
-  "validation_type": "player_team",
-  "text_x": 1808,
-  "text_y": 1397,
+  "validation_type": "custom",
+  "text_x": 1829,
+  "text_y": 1394,
   "font_size": 100,
   "font_color": [
-    50,
-    24,
-    18
+    0,
+    0,
+    0
   ],
-  "custom_fields": []
+  "custom_fields": [
+    "player"
+  ]
 }
