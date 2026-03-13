@@ -5,6 +5,11 @@ import json
 import os
 import re
 import shutil
+import tempfile
+import time
+from urllib import error as urlerror
+from urllib import parse as urlparse
+from urllib import request as urlrequest
 from functools import wraps
 from io import BytesIO
 from uuid import uuid4
@@ -19,11 +24,20 @@ app.secret_key = os.environ.get("SECRET_KEY", os.urandom(24))
 app.config["MAX_CONTENT_LENGTH"] = 10 * 1024 * 1024  # 10 MB upload limit
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-EVENTS_DIR = os.path.join(BASE_DIR, "events")
+SOURCE_EVENTS_DIR = os.path.join(BASE_DIR, "events")
 # Vercel serverless functions can only write to /tmp at runtime.
-RUNTIME_WRITABLE_DIR = "/tmp" if os.environ.get("VERCEL") else BASE_DIR
+RUNTIME_WRITABLE_DIR = tempfile.gettempdir() if os.environ.get("VERCEL") else BASE_DIR
+EVENTS_DIR = os.path.join(RUNTIME_WRITABLE_DIR, "events")
 GENERATED_DIR = os.path.join(RUNTIME_WRITABLE_DIR, "generated_certificates")
 FONT_PATH = os.path.join(BASE_DIR, "fonts", "Montserrat-Bold.ttf")
+
+EVENT_STATE_FILE = os.path.join(GENERATED_DIR, "event_states.json")
+KV_REST_API_URL = os.environ.get("KV_REST_API_URL", "").strip()
+KV_REST_API_TOKEN = os.environ.get("KV_REST_API_TOKEN", "").strip()
+KV_EVENT_STATE_KEY = os.environ.get("KV_EVENT_STATE_KEY", "certificate_generator:event_states")
+_EVENT_STATE_CACHE: dict[str, dict] | None = None
+_EVENT_STATE_CACHE_AT = 0.0
+_EVENT_STATE_CACHE_TTL_SEC = 2.0
 
 os.makedirs(EVENTS_DIR, exist_ok=True)
 os.makedirs(GENERATED_DIR, exist_ok=True)
@@ -31,6 +45,122 @@ os.makedirs(GENERATED_DIR, exist_ok=True)
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
 _SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 VALIDATION_TYPES = {"player_team", "name_only", "email", "badge_id", "custom", "none"}
+
+
+def _kv_enabled() -> bool:
+	return bool(KV_REST_API_URL and KV_REST_API_TOKEN)
+
+
+def _read_event_states_from_file() -> dict[str, dict]:
+	if not os.path.exists(EVENT_STATE_FILE):
+		return {}
+	try:
+		with open(EVENT_STATE_FILE, encoding="utf-8") as f:
+			loaded = json.load(f)
+		if isinstance(loaded, dict):
+			return {str(k): v for k, v in loaded.items() if isinstance(v, dict)}
+	except Exception:
+		return {}
+	return {}
+
+
+def _write_event_states_to_file(states: dict[str, dict]) -> None:
+	os.makedirs(os.path.dirname(EVENT_STATE_FILE), exist_ok=True)
+	with open(EVENT_STATE_FILE, "w", encoding="utf-8") as f:
+		json.dump(states, f, indent=2)
+
+
+def _kv_get_event_states() -> dict[str, dict]:
+	url = f"{KV_REST_API_URL.rstrip('/')}/get/{urlparse.quote(KV_EVENT_STATE_KEY, safe='')}"
+	req = urlrequest.Request(url, headers={"Authorization": f"Bearer {KV_REST_API_TOKEN}"})
+	with urlrequest.urlopen(req, timeout=5) as response:
+		payload = json.loads(response.read().decode("utf-8"))
+	raw = payload.get("result")
+	if raw in (None, ""):
+		return {}
+	if isinstance(raw, str):
+		loaded = json.loads(raw)
+	elif isinstance(raw, dict):
+		loaded = raw
+	else:
+		return {}
+	if not isinstance(loaded, dict):
+		return {}
+	return {str(k): v for k, v in loaded.items() if isinstance(v, dict)}
+
+
+def _kv_set_event_states(states: dict[str, dict]) -> None:
+	encoded_states = json.dumps(states, separators=(",", ":"))
+	key = urlparse.quote(KV_EVENT_STATE_KEY, safe="")
+	value = urlparse.quote(encoded_states, safe="")
+	url = f"{KV_REST_API_URL.rstrip('/')}/set/{key}/{value}"
+	req = urlrequest.Request(url, method="POST", headers={"Authorization": f"Bearer {KV_REST_API_TOKEN}"})
+	with urlrequest.urlopen(req, timeout=5):
+		return
+
+
+def _load_event_states(force: bool = False) -> dict[str, dict]:
+	global _EVENT_STATE_CACHE, _EVENT_STATE_CACHE_AT
+	if not force and _EVENT_STATE_CACHE is not None and (time.time() - _EVENT_STATE_CACHE_AT) < _EVENT_STATE_CACHE_TTL_SEC:
+		return _EVENT_STATE_CACHE
+	states: dict[str, dict]
+	if _kv_enabled():
+		try:
+			states = _kv_get_event_states()
+		except (urlerror.URLError, TimeoutError, json.JSONDecodeError, OSError):
+			states = _read_event_states_from_file()
+	else:
+		states = _read_event_states_from_file()
+	_EVENT_STATE_CACHE = states
+	_EVENT_STATE_CACHE_AT = time.time()
+	return states
+
+
+def _save_event_states(states: dict[str, dict]) -> None:
+	global _EVENT_STATE_CACHE, _EVENT_STATE_CACHE_AT
+	if _kv_enabled():
+		try:
+			_kv_set_event_states(states)
+		except (urlerror.URLError, TimeoutError, OSError):
+			# Keep local fallback for local dev / temporary outages.
+			_write_event_states_to_file(states)
+	else:
+		_write_event_states_to_file(states)
+	_EVENT_STATE_CACHE = states
+	_EVENT_STATE_CACHE_AT = time.time()
+
+
+def _event_state(slug: str, states: dict[str, dict] | None = None) -> dict:
+	if states is None:
+		states = _load_event_states()
+	state = states.get(slug)
+	return state if isinstance(state, dict) else {}
+
+
+def _set_event_state(slug: str, **updates) -> None:
+	states = _load_event_states()
+	current = _event_state(slug, states)
+	next_state = dict(current)
+	next_state.update(updates)
+	states[slug] = next_state
+	_save_event_states(states)
+
+
+def _bootstrap_runtime_events() -> None:
+	"""Copy bundled events into the runtime-writable directory when needed."""
+	if EVENTS_DIR == SOURCE_EVENTS_DIR or not os.path.isdir(SOURCE_EVENTS_DIR):
+		return
+	states = _load_event_states()
+	for slug in os.listdir(SOURCE_EVENTS_DIR):
+		source_path = os.path.join(SOURCE_EVENTS_DIR, slug)
+		target_path = os.path.join(EVENTS_DIR, slug)
+		if not os.path.isdir(source_path):
+			continue
+		if _event_state(slug, states).get("deleted", False):
+			continue
+		if os.path.exists(os.path.join(target_path, "config.json")):
+			continue
+		shutil.copytree(source_path, target_path, dirs_exist_ok=True)
 
 
 # ─── First-run migration ──────────────────────────────────────────────────────
@@ -62,7 +192,7 @@ def _migrate_legacy_event() -> None:
 	with open(config_path, "w", encoding="utf-8") as f:
 		json.dump(config, f, indent=2)
 
-
+_bootstrap_runtime_events()
 _migrate_legacy_event()
 
 
@@ -94,14 +224,20 @@ def _event_csv_path(slug: str) -> str:
 	return os.path.join(_event_dir(slug), "data.csv")
 
 
-def load_event(slug: str) -> dict | None:
+def load_event(slug: str, states: dict[str, dict] | None = None) -> dict | None:
 	if not safe_slug(slug):
+		return None
+	state = _event_state(slug, states)
+	if state.get("deleted", False):
 		return None
 	path = _event_config_path(slug)
 	if not os.path.exists(path):
 		return None
 	with open(path, encoding="utf-8") as f:
-		return json.load(f)
+		config = json.load(f)
+	if "active" in state:
+		config["active"] = bool(state.get("active"))
+	return config
 
 
 def save_event_config(slug: str, config: dict) -> None:
@@ -113,8 +249,9 @@ def load_all_events(active_only: bool = False) -> list[dict]:
 	events = []
 	if not os.path.isdir(EVENTS_DIR):
 		return events
+	states = _load_event_states()
 	for slug in os.listdir(EVENTS_DIR):
-		config = load_event(slug)
+		config = load_event(slug, states)
 		if config is None:
 			continue
 		if active_only and not config.get("active", False):
@@ -614,6 +751,7 @@ def admin_create_event():
 	config = {"name": name, "slug": slug, "active": False, "validation_type": validation_type, "custom_fields": custom_fields,
 			  "text_x": text_x, "text_y": text_y, "font_size": font_size, "font_color": font_color}
 	save_event_config(slug, config)
+	_set_event_state(slug, deleted=False, active=False)
 	return redirect(url_for("admin_edit_event", slug=slug))
 
 
@@ -769,6 +907,7 @@ def admin_toggle_event(slug: str):
 		return redirect(url_for("admin_dashboard"))
 	config["active"] = not config.get("active", False)
 	save_event_config(slug, config)
+	_set_event_state(slug, active=config["active"], deleted=False)
 	return redirect(url_for("admin_dashboard"))
 
 
@@ -782,6 +921,7 @@ def admin_delete_event(slug: str):
 	event_path = _event_dir(slug)
 	if os.path.isdir(event_path):
 		shutil.rmtree(event_path)
+	_set_event_state(slug, deleted=True, active=False)
 	return redirect(url_for("admin_dashboard"))
 
 
