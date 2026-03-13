@@ -20,7 +20,9 @@ app.config["MAX_CONTENT_LENGTH"] = 10 * 1024 * 1024  # 10 MB upload limit
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 EVENTS_DIR = os.path.join(BASE_DIR, "events")
-GENERATED_DIR = os.path.join(BASE_DIR, "generated_certificates")
+# Vercel serverless functions can only write to /tmp at runtime.
+RUNTIME_WRITABLE_DIR = "/tmp" if os.environ.get("VERCEL") else BASE_DIR
+GENERATED_DIR = os.path.join(RUNTIME_WRITABLE_DIR, "generated_certificates")
 FONT_PATH = os.path.join(BASE_DIR, "fonts", "Montserrat-Bold.ttf")
 
 os.makedirs(EVENTS_DIR, exist_ok=True)
