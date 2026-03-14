@@ -25,8 +25,22 @@ app.config["MAX_CONTENT_LENGTH"] = 10 * 1024 * 1024  # 10 MB upload limit
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 SOURCE_EVENTS_DIR = os.path.join(BASE_DIR, "events")
-# Vercel serverless functions can only write to /tmp at runtime.
-RUNTIME_WRITABLE_DIR = tempfile.gettempdir() if os.environ.get("VERCEL") else BASE_DIR
+
+
+def _resolve_runtime_writable_dir() -> str:
+	"""Use BASE_DIR when writable, otherwise fall back to OS temp directory."""
+	probe_path = os.path.join(BASE_DIR, ".write_probe")
+	try:
+		with open(probe_path, "w", encoding="utf-8") as f:
+			f.write("ok")
+		os.remove(probe_path)
+		return BASE_DIR
+	except OSError:
+		return tempfile.gettempdir()
+
+
+# Serverless deployments may have a read-only code directory.
+RUNTIME_WRITABLE_DIR = _resolve_runtime_writable_dir()
 EVENTS_DIR = os.path.join(RUNTIME_WRITABLE_DIR, "events")
 GENERATED_DIR = os.path.join(RUNTIME_WRITABLE_DIR, "generated_certificates")
 FONT_PATH = os.path.join(BASE_DIR, "fonts", "Montserrat-Bold.ttf")
