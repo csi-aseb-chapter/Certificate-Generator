@@ -44,6 +44,15 @@ RUNTIME_WRITABLE_DIR = _resolve_runtime_writable_dir()
 EVENTS_DIR = os.path.join(RUNTIME_WRITABLE_DIR, "events")
 GENERATED_DIR = os.path.join(RUNTIME_WRITABLE_DIR, "generated_certificates")
 FONT_PATH = os.path.join(BASE_DIR, "fonts", "Montserrat-Bold.ttf")
+DEFAULT_FONT_KEY = "montserrat_bold"
+FONT_OPTIONS = {
+	"montserrat_bold": {
+		"label": "Montserrat Bold",
+		"filename": "Montserrat-Bold.ttf",
+		"css_family": "Montserrat Bold",
+		"css_weight": "700",
+	}
+}
 
 EVENT_STATE_FILE = os.path.join(GENERATED_DIR, "event_states.json")
 KV_REST_API_URL = os.environ.get("KV_REST_API_URL", "").strip()
@@ -232,6 +241,7 @@ def _migrate_legacy_event() -> None:
 		"text_y": 1440,
 		"font_size": 100,
 		"font_color": [50, 34, 24],
+		"font_key": DEFAULT_FONT_KEY,
 	}
 	with open(config_path, "w", encoding="utf-8") as f:
 		json.dump(config, f, indent=2)
@@ -274,6 +284,56 @@ def _event_csv_path(slug: str) -> str:
 
 def _event_csv_key(slug: str) -> str:
 	return f"{KV_EVENT_CSV_PREFIX}{slug}"
+
+
+def available_font_options() -> list[dict[str, str]]:
+	options: list[dict[str, str]] = []
+	for key, meta in FONT_OPTIONS.items():
+		path = os.path.join(BASE_DIR, "fonts", meta["filename"])
+		if not os.path.exists(path):
+			continue
+		options.append(
+			{
+				"key": key,
+				"label": meta["label"],
+				"path": path,
+				"css_family": meta["css_family"],
+				"css_weight": meta["css_weight"],
+			}
+		)
+	if options:
+		return options
+	return [
+		{
+			"key": DEFAULT_FONT_KEY,
+			"label": "Default",
+			"path": FONT_PATH,
+			"css_family": "Arial",
+			"css_weight": "700",
+		}
+	]
+
+
+def normalize_font_key(value: str | None, fallback: str = DEFAULT_FONT_KEY) -> str:
+	candidate = (value or "").strip().lower()
+	available = {option["key"] for option in available_font_options()}
+	if candidate in available:
+		return candidate
+	if fallback in available:
+		return fallback
+	return next(iter(available), DEFAULT_FONT_KEY)
+
+
+def resolve_font_option(font_key: str | None) -> dict[str, str]:
+	normalized_key = normalize_font_key(font_key)
+	for option in available_font_options():
+		if option["key"] == normalized_key:
+			return option
+	return available_font_options()[0]
+
+
+def _normalize_event_style_config(config: dict) -> None:
+	config["font_key"] = normalize_font_key(config.get("font_key"), DEFAULT_FONT_KEY)
 
 
 def _read_event_config_from_file(slug: str) -> dict | None:
@@ -420,12 +480,14 @@ def load_event(slug: str, states: dict[str, dict] | None = None) -> dict | None:
 	config = _load_event_config(slug)
 	if config is None:
 		return None
+	_normalize_event_style_config(config)
 	if "active" in state:
 		config["active"] = bool(state.get("active"))
 	return config
 
 
 def save_event_config(slug: str, config: dict) -> None:
+	_normalize_event_style_config(config)
 	_write_event_config_to_file(slug, config)
 	if _kv_enabled():
 		try:
@@ -660,10 +722,11 @@ def validate_participant_submission(slug: str, config: dict, form_data) -> str |
 
 # ─── Certificate helpers ──────────────────────────────────────────────────────
 
-def get_font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
+def get_font(size: int, font_key: str | None = None) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
+	font_option = resolve_font_option(font_key)
 	try:
-		if os.path.exists(FONT_PATH):
-			return ImageFont.truetype(FONT_PATH, size=size)
+		if os.path.exists(font_option["path"]):
+			return ImageFont.truetype(font_option["path"], size=size)
 		return ImageFont.truetype("arial.ttf", size=size)
 	except Exception:
 		return ImageFont.load_default()
@@ -688,6 +751,7 @@ def generate_certificate_file(slug: str, cert_name: str, event_config: dict) -> 
 		"text_y": event_config.get("text_y", 1440),
 		"font_size": event_config.get("font_size", 100),
 		"font_color": event_config.get("font_color", [50, 34, 24]),
+		"font_key": normalize_font_key(event_config.get("font_key"), DEFAULT_FONT_KEY),
 	}
 	with open(_cert_metadata_path(cert_id), "w", encoding="utf-8") as f:
 		json.dump(metadata, f)
@@ -716,14 +780,16 @@ def build_render_metadata(cert_id: str) -> dict | None:
 		("text_y", 1440),
 		("font_size", 100),
 		("font_color", [50, 34, 24]),
+		("font_key", DEFAULT_FONT_KEY),
 	):
 		render_metadata[key] = event_config.get(key, metadata.get(key, fallback))
+	render_metadata["font_key"] = normalize_font_key(render_metadata.get("font_key"), DEFAULT_FONT_KEY)
 	return render_metadata
 
 
 def draw_name_on_image(image: Image.Image, metadata: dict) -> None:
 	draw = ImageDraw.Draw(image)
-	font = get_font(metadata.get("font_size", 100))
+	font = get_font(metadata.get("font_size", 100), metadata.get("font_key"))
 	color = tuple(metadata.get("font_color", [50, 34, 24]))
 	draw.text(
 		(metadata.get("text_x", 1789), metadata.get("text_y", 1440)),
@@ -794,6 +860,15 @@ def build_preview_metadata(event_config: dict, cert_name: str | None = None) -> 
 		"text_y": _parse_int(request.args.get("text_y"), event_config.get("text_y", 1440)),
 		"font_size": _parse_int(request.args.get("font_size"), event_config.get("font_size", 100)),
 		"font_color": _parse_color(request.args.get("font_color"), event_config.get("font_color", [50, 34, 24])),
+		"font_key": normalize_font_key(request.args.get("font_key"), event_config.get("font_key", DEFAULT_FONT_KEY)),
+	}
+
+
+@app.context_processor
+def inject_style_context() -> dict:
+	return {
+		"font_options": available_font_options(),
+		"default_font_key": normalize_font_key(DEFAULT_FONT_KEY),
 	}
 
 
@@ -942,8 +1017,10 @@ def admin_create_event():
 	text_y = _parse_int(request.form.get("text_y"), 1440)
 	font_size = _parse_int(request.form.get("font_size"), 100)
 	font_color = _parse_color(request.form.get("font_color", ""))
+	font_key = normalize_font_key(request.form.get("font_key"), DEFAULT_FONT_KEY)
 	form_data = {"name": name, "slug": slug, "validation_type": validation_type, "custom_fields": custom_fields,
-				 "text_x": text_x, "text_y": text_y, "font_size": font_size, "font_color": font_color}
+				 "text_x": text_x, "text_y": text_y, "font_size": font_size, "font_color": font_color,
+				 "font_key": font_key}
 	if not name or not slug:
 		return render_template("admin/event_form.html", event=form_data, is_new=True, error="Name and slug are required."), 400
 	if not safe_slug(slug):
@@ -954,7 +1031,7 @@ def admin_create_event():
 							   error=f"An event with slug '{slug}' already exists."), 400
 	os.makedirs(_event_dir(slug), exist_ok=True)
 	config = {"name": name, "slug": slug, "active": False, "validation_type": validation_type, "custom_fields": custom_fields,
-			  "text_x": text_x, "text_y": text_y, "font_size": font_size, "font_color": font_color}
+			  "text_x": text_x, "text_y": text_y, "font_size": font_size, "font_color": font_color, "font_key": font_key}
 	save_event_config(slug, config)
 	_set_event_state(slug, deleted=False, active=False)
 	return redirect(url_for("admin_edit_event", slug=slug))
@@ -996,6 +1073,7 @@ def admin_update_config(slug: str):
 	config["text_y"] = _parse_int(request.form.get("text_y"), config.get("text_y", 1440))
 	config["font_size"] = _parse_int(request.form.get("font_size"), config.get("font_size", 100))
 	config["font_color"] = _parse_color(request.form.get("font_color"), config.get("font_color", [50, 34, 24]))
+	config["font_key"] = normalize_font_key(request.form.get("font_key"), config.get("font_key", DEFAULT_FONT_KEY))
 	save_event_config(slug, config)
 	if request.headers.get("X-Requested-With") == "XMLHttpRequest":
 		return jsonify({"ok": True, "message": "Settings saved."})
@@ -1173,12 +1251,21 @@ def admin_render_preview(slug: str):
 	return send_file(output, mimetype="image/png")
 
 
+@app.route("/assets/fonts/<font_key>.ttf", methods=["GET"])
+def font_asset(font_key: str):
+	"""Serve event font files used by PIL so browser previews match generated files."""
+	if normalize_font_key(font_key) != font_key:
+		return "Font not found", 404
+	font_option = resolve_font_option(font_key)
+	if not os.path.exists(font_option["path"]):
+		return "Font not found", 404
+	return send_file(font_option["path"], mimetype="font/ttf")
+
+
 @app.route("/assets/fonts/montserrat-bold.ttf", methods=["GET"])
 def montserrat_bold_font():
-	"""Serve the same font file used by PIL so browser previews match generated files."""
-	if not os.path.exists(FONT_PATH):
-		return "Font not found", 404
-	return send_file(FONT_PATH, mimetype="font/ttf")
+	"""Backward-compatible route for existing CSS references."""
+	return font_asset(DEFAULT_FONT_KEY)
 
 
 # ─── Entry point ──────────────────────────────────────────────────────────────

@@ -5,13 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>{{ 'New Event' if is_new else 'Edit: ' + event.name }} – Admin</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
-    <style>
-      @font-face {
-        font-family: 'Montserrat Bold';
-        src: url('{{ url_for("montserrat_bold_font") }}') format('truetype');
-        font-weight: 700;
-      }
-    </style>
   </head>
   <body>
     <div class="admin-layout">
@@ -149,11 +142,28 @@
                   </div>
                 </div>
                 <div class="input-pair">
+                  {% set selected_font_key = event.font_key if event and event.font_key else default_font_key %}
                   <div>
                     <label for="font_size">Font size (px)</label>
                     <input id="font_size" name="font_size" class="coord-input" type="number" min="8"
                       value="{{ event.font_size if event else 100 }}" />
                   </div>
+                  <div>
+                    <label for="font_key">Font family</label>
+                    <select id="font_key" name="font_key" class="coord-input">
+                      {% for option in font_options %}
+                      <option
+                        value="{{ option.key }}"
+                        data-family="{{ option.css_family }}"
+                        data-weight="{{ option.css_weight }}"
+                        data-url="{{ url_for('font_asset', font_key=option.key) }}"
+                        {{ 'selected' if option.key == selected_font_key else '' }}
+                      >{{ option.label }}</option>
+                      {% endfor %}
+                    </select>
+                  </div>
+                </div>
+                <div class="input-pair">
                   <div>
                     <label for="font_color">Font color</label>
                     {% if event and event.font_color %}
@@ -346,6 +356,7 @@
       const textXInput = document.getElementById('text_x');
       const textYInput = document.getElementById('text_y');
       const fontSizeInput = document.getElementById('font_size');
+      const fontKeyInput = document.getElementById('font_key');
       const fontColorInput = document.getElementById('font_color');
       const previewSampleInput = document.getElementById('preview_sample_text');
       let previewRaf = null;
@@ -356,9 +367,37 @@
       let previewScaleX = 1;
       let previewScaleY = 1;
       const PREVIEW_MAX_WIDTH = 960;
-      const previewFontReadyPromise = document.fonts
-        ? document.fonts.load('700 32px "Montserrat Bold"').catch(() => undefined)
-        : Promise.resolve();
+      const loadedPreviewFonts = new Set();
+
+      function selectedPreviewFont() {
+        const selectedOption = fontKeyInput && fontKeyInput.selectedOptions
+          ? fontKeyInput.selectedOptions[0]
+          : null;
+        return {
+          family: (selectedOption && selectedOption.dataset.family) || 'Montserrat Bold',
+          weight: (selectedOption && selectedOption.dataset.weight) || '700',
+          url: (selectedOption && selectedOption.dataset.url) || ''
+        };
+      }
+
+      function ensurePreviewFontLoaded() {
+        const font = selectedPreviewFont();
+        if (!document.fonts) {
+          return Promise.resolve();
+        }
+        if (loadedPreviewFonts.has(font.family)) {
+          return document.fonts.load(`${font.weight} 32px "${font.family}"`).catch(() => undefined);
+        }
+        if (window.FontFace && font.url) {
+          const face = new FontFace(font.family, `url(${font.url})`, { weight: font.weight });
+          return face.load().then((loadedFace) => {
+            document.fonts.add(loadedFace);
+            loadedPreviewFonts.add(font.family);
+            return document.fonts.load(`${font.weight} 32px "${font.family}"`);
+          }).catch(() => undefined);
+        }
+        return document.fonts.load(`${font.weight} 32px "${font.family}"`).catch(() => undefined);
+      }
 
       function setEditSaveStatus(message, isError) {
         if (!editConfigStatus) return;
@@ -462,9 +501,10 @@
         const textX = (parseInt(textXInput.value, 10) || 0) * previewScaleX;
         const textY = (parseInt(textYInput.value, 10) || 0) * previewScaleY;
         const fontSize = Math.max(12, (parseInt(fontSizeInput.value, 10) || 100) * previewScaleX);
+        const font = selectedPreviewFont();
 
         previewTextCtx.fillStyle = fontColorInput.value || '#321812';
-        previewTextCtx.font = `bold ${fontSize}px "Montserrat Bold", Arial`;
+        previewTextCtx.font = `${font.weight} ${fontSize}px "${font.family}", Arial`;
         previewTextCtx.textAlign = 'center';
         previewTextCtx.textBaseline = 'middle';
         previewTextCtx.fillText(displayText, textX, textY);
@@ -488,14 +528,15 @@
           if (previewLoadingEl) {
             previewLoadingEl.classList.remove('is-visible');
           }
-          previewFontReadyPromise.finally(drawSmallPreviewText);
+          ensurePreviewFontLoaded().finally(drawSmallPreviewText);
         };
         image.onerror = () => {
           previewTemplateImage = null;
           previewBaseCtx.clearRect(0, 0, previewBaseCanvas.width, previewBaseCanvas.height);
           previewTextCtx.clearRect(0, 0, previewTextCanvas.width, previewTextCanvas.height);
+          const fallbackFont = selectedPreviewFont();
           previewBaseCtx.fillStyle = '#93a4c3';
-          previewBaseCtx.font = '20px "Montserrat Bold", Arial';
+          previewBaseCtx.font = `${fallbackFont.weight} 20px "${fallbackFont.family}", Arial`;
           previewBaseCtx.textAlign = 'center';
           previewBaseCtx.textBaseline = 'middle';
           previewBaseCtx.fillText('Preview not available', previewBaseCanvas.width / 2, previewBaseCanvas.height / 2);
@@ -523,9 +564,12 @@
         drawSmallPreviewText();
       }
 
-      [textXInput, textYInput, fontSizeInput, fontColorInput, previewSampleInput].forEach((el) => {
+      [textXInput, textYInput, fontSizeInput, fontKeyInput, fontColorInput, previewSampleInput].forEach((el) => {
         if (el) {
-          el.addEventListener('input', scheduleSmallPreviewUpdate);
+          const eventName = el.tagName === 'SELECT' ? 'change' : 'input';
+          el.addEventListener(eventName, () => {
+            ensurePreviewFontLoaded().finally(scheduleSmallPreviewUpdate);
+          });
         }
       });
 

@@ -6,11 +6,6 @@
     <title>Coordinate Editor – {{ event.name }} – Admin</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
     <style>
-      @font-face {
-        font-family: 'Montserrat Bold';
-        src: url('{{ url_for("montserrat_bold_font") }}') format('truetype');
-        font-weight: 700;
-      }
       body {
         overflow: hidden;
       }
@@ -62,7 +57,8 @@
         font-size: 0.9rem;
         color: var(--text);
       }
-      .coord-editor-control input {
+      .coord-editor-control input,
+      .coord-editor-control select {
         width: 100%;
         border: 1px solid var(--border);
         border-radius: 8px;
@@ -71,7 +67,8 @@
         background: var(--surface);
         color: var(--text);
       }
-      .coord-editor-control input:focus {
+      .coord-editor-control input:focus,
+      .coord-editor-control select:focus {
         outline: none;
         border-color: var(--accent);
         box-shadow: 0 0 0 3px var(--accent-soft);
@@ -169,6 +166,22 @@
             />
           </div>
 
+          {% set selected_font_key = event.font_key if event and event.font_key else default_font_key %}
+          <div class="coord-editor-control">
+            <label for="font_key">Font Family</label>
+            <select id="font_key" name="font_key">
+              {% for option in font_options %}
+              <option
+                value="{{ option.key }}"
+                data-family="{{ option.css_family }}"
+                data-weight="{{ option.css_weight }}"
+                data-url="{{ url_for('font_asset', font_key=option.key) }}"
+                {{ 'selected' if option.key == selected_font_key else '' }}
+              >{{ option.label }}</option>
+              {% endfor %}
+            </select>
+          </div>
+
           <div class="coord-editor-control">
             <label for="font_color">Font Color</label>
             {% if event and event.font_color %}
@@ -212,6 +225,7 @@
       const textXInput = document.getElementById('text_x');
       const textYInput = document.getElementById('text_y');
       const fontSizeInput = document.getElementById('font_size');
+      const fontKeyInput = document.getElementById('font_key');
       const fontColorInput = document.getElementById('font_color');
       const sampleTextInput = document.getElementById('sample_text');
       const coordSaveStatus = document.getElementById('coordSaveStatus');
@@ -230,9 +244,37 @@
       let coordAutosaveTimer = null;
       let coordAutosaveInFlight = false;
       let coordAutosaveQueued = false;
-      const fontReadyPromise = document.fonts
-        ? document.fonts.load('700 32px "Montserrat Bold"').catch(() => undefined)
-        : Promise.resolve();
+      const loadedPreviewFonts = new Set();
+
+      function selectedPreviewFont() {
+        const selectedOption = fontKeyInput && fontKeyInput.selectedOptions
+          ? fontKeyInput.selectedOptions[0]
+          : null;
+        return {
+          family: (selectedOption && selectedOption.dataset.family) || 'Montserrat Bold',
+          weight: (selectedOption && selectedOption.dataset.weight) || '700',
+          url: (selectedOption && selectedOption.dataset.url) || ''
+        };
+      }
+
+      function ensurePreviewFontLoaded() {
+        const font = selectedPreviewFont();
+        if (!document.fonts) {
+          return Promise.resolve();
+        }
+        if (loadedPreviewFonts.has(font.family)) {
+          return document.fonts.load(`${font.weight} 32px "${font.family}"`).catch(() => undefined);
+        }
+        if (window.FontFace && font.url) {
+          const face = new FontFace(font.family, `url(${font.url})`, { weight: font.weight });
+          return face.load().then((loadedFace) => {
+            document.fonts.add(loadedFace);
+            loadedPreviewFonts.add(font.family);
+            return document.fonts.load(`${font.weight} 32px "${font.family}"`);
+          }).catch(() => undefined);
+        }
+        return document.fonts.load(`${font.weight} 32px "${font.family}"`).catch(() => undefined);
+      }
 
       function setCoordSaveStatus(message, isError) {
         if (!coordSaveStatus) return;
@@ -299,13 +341,14 @@
         const img = new Image();
         img.onload = () => {
           certImage = img;
-          fontReadyPromise.finally(resizeCanvas);
+          ensurePreviewFontLoaded().finally(resizeCanvas);
         };
         img.onerror = () => {
           certImage = null;
           ctx.clearRect(0, 0, canvas.width, canvas.height);
+          const fallbackFont = selectedPreviewFont();
           ctx.fillStyle = '#999';
-          ctx.font = '20px "Montserrat Bold", Arial';
+          ctx.font = `${fallbackFont.weight} 20px "${fallbackFont.family}", Arial`;
           ctx.textAlign = 'center';
           ctx.fillText('Preview not available', canvas.width / 2, canvas.height / 2);
         };
@@ -356,6 +399,7 @@
         const size = parseInt(fontSizeInput.value) * scaleX / 2;
         const color = fontColorInput.value || '#321812';
         const displayText = sampleTextInput.value.trim() || 'Sample Text';
+        const font = selectedPreviewFont();
 
         // Highlight the draggable area
         if (isDragging) {
@@ -381,7 +425,7 @@
         ctx.stroke();
 
         ctx.fillStyle = color;
-        ctx.font = `bold ${Math.max(12, parseInt(fontSizeInput.value) * scaleX)}px "Montserrat Bold", Arial`;
+        ctx.font = `${font.weight} ${Math.max(12, parseInt(fontSizeInput.value) * scaleX)}px "${font.family}", Arial`;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillText(displayText, x, y);
@@ -447,6 +491,11 @@
       [textXInput, textYInput, fontSizeInput, fontColorInput, sampleTextInput].forEach(input => {
         input.addEventListener('input', drawPreview);
       });
+      if (fontKeyInput) {
+        fontKeyInput.addEventListener('change', () => {
+          ensurePreviewFontLoaded().finally(drawPreview);
+        });
+      }
 
       sampleTextInput.addEventListener('input', persistSampleText);
 
@@ -478,6 +527,9 @@
         input.addEventListener('input', scheduleCoordAutosave);
       });
       fontColorInput.addEventListener('change', scheduleCoordAutosave);
+      if (fontKeyInput) {
+        fontKeyInput.addEventListener('change', scheduleCoordAutosave);
+      }
 
       // Handle window resize
       window.addEventListener('resize', resizeCanvas);
