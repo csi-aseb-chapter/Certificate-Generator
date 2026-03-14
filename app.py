@@ -49,6 +49,9 @@ EVENT_STATE_FILE = os.path.join(GENERATED_DIR, "event_states.json")
 KV_REST_API_URL = os.environ.get("KV_REST_API_URL", "").strip()
 KV_REST_API_TOKEN = os.environ.get("KV_REST_API_TOKEN", "").strip()
 KV_EVENT_STATE_KEY = os.environ.get("KV_EVENT_STATE_KEY", "certificate_generator:event_states")
+KV_EVENT_INDEX_KEY = os.environ.get("KV_EVENT_INDEX_KEY", "certificate_generator:event_index")
+KV_EVENT_CONFIG_PREFIX = os.environ.get("KV_EVENT_CONFIG_PREFIX", "certificate_generator:event_config:")
+KV_EVENT_CSV_PREFIX = os.environ.get("KV_EVENT_CSV_PREFIX", "certificate_generator:event_csv:")
 _EVENT_STATE_CACHE: dict[str, dict] | None = None
 _EVENT_STATE_CACHE_AT = 0.0
 _EVENT_STATE_CACHE_TTL_SEC = 2.0
@@ -112,6 +115,29 @@ def _kv_set_event_states(states: dict[str, dict]) -> None:
 	key = urlparse.quote(KV_EVENT_STATE_KEY, safe="")
 	value = urlparse.quote(encoded_states, safe="")
 	url = f"{KV_REST_API_URL.rstrip('/')}/set/{key}/{value}"
+	req = urlrequest.Request(url, method="POST", headers={"Authorization": f"Bearer {KV_REST_API_TOKEN}"})
+	with urlrequest.urlopen(req, timeout=5):
+		return
+
+
+def _kv_get_raw(key: str):
+	url = f"{KV_REST_API_URL.rstrip('/')}/get/{urlparse.quote(key, safe='')}"
+	req = urlrequest.Request(url, headers={"Authorization": f"Bearer {KV_REST_API_TOKEN}"})
+	with urlrequest.urlopen(req, timeout=5) as response:
+		payload = json.loads(response.read().decode("utf-8"))
+	return payload.get("result")
+
+
+def _kv_set_raw(key: str, value: str) -> None:
+	encoded_value = urlparse.quote(value, safe="")
+	url = f"{KV_REST_API_URL.rstrip('/')}/set/{urlparse.quote(key, safe='')}/{encoded_value}"
+	req = urlrequest.Request(url, method="POST", headers={"Authorization": f"Bearer {KV_REST_API_TOKEN}"})
+	with urlrequest.urlopen(req, timeout=5):
+		return
+
+
+def _kv_delete_key(key: str) -> None:
+	url = f"{KV_REST_API_URL.rstrip('/')}/del/{urlparse.quote(key, safe='')}"
 	req = urlrequest.Request(url, method="POST", headers={"Authorization": f"Bearer {KV_REST_API_TOKEN}"})
 	with urlrequest.urlopen(req, timeout=5):
 		return
@@ -228,6 +254,10 @@ def _event_config_path(slug: str) -> str:
 	return os.path.join(_event_dir(slug), "config.json")
 
 
+def _event_config_key(slug: str) -> str:
+	return f"{KV_EVENT_CONFIG_PREFIX}{slug}"
+
+
 def _event_template_path(slug: str) -> str:
 	"""Get template path. Returns first matching image file in event directory."""
 	event_dir = _event_dir(slug)
@@ -242,33 +272,195 @@ def _event_csv_path(slug: str) -> str:
 	return os.path.join(_event_dir(slug), "data.csv")
 
 
+def _event_csv_key(slug: str) -> str:
+	return f"{KV_EVENT_CSV_PREFIX}{slug}"
+
+
+def _read_event_config_from_file(slug: str) -> dict | None:
+	path = _event_config_path(slug)
+	if not os.path.exists(path):
+		return None
+	try:
+		with open(path, encoding="utf-8") as f:
+			loaded = json.load(f)
+		if isinstance(loaded, dict):
+			return loaded
+	except Exception:
+		return None
+	return None
+
+
+def _write_event_config_to_file(slug: str, config: dict) -> None:
+	os.makedirs(_event_dir(slug), exist_ok=True)
+	with open(_event_config_path(slug), "w", encoding="utf-8") as f:
+		json.dump(config, f, indent=2)
+
+
+def _load_event_config(slug: str) -> dict | None:
+	if _kv_enabled():
+		try:
+			raw = _kv_get_raw(_event_config_key(slug))
+			if raw not in (None, ""):
+				loaded = json.loads(raw) if isinstance(raw, str) else raw
+				if isinstance(loaded, dict):
+					return loaded
+		except (urlerror.URLError, TimeoutError, json.JSONDecodeError, OSError, ValueError):
+			pass
+	return _read_event_config_from_file(slug)
+
+
+def _read_event_csv_from_file(slug: str) -> str | None:
+	path = _event_csv_path(slug)
+	if not os.path.exists(path):
+		return None
+	try:
+		with open(path, newline="", encoding="utf-8") as f:
+			return f.read()
+	except OSError:
+		return None
+
+
+def load_event_csv_text(slug: str) -> str | None:
+	if _kv_enabled():
+		try:
+			raw = _kv_get_raw(_event_csv_key(slug))
+			if isinstance(raw, str):
+				return raw
+		except (urlerror.URLError, TimeoutError, OSError, ValueError):
+			pass
+	return _read_event_csv_from_file(slug)
+
+
+def _write_event_csv_to_file(slug: str, content: str) -> None:
+	os.makedirs(_event_dir(slug), exist_ok=True)
+	with open(_event_csv_path(slug), "w", encoding="utf-8", newline="") as f:
+		f.write(content)
+
+
+def _load_kv_event_index() -> list[str]:
+	if not _kv_enabled():
+		return []
+	try:
+		raw = _kv_get_raw(KV_EVENT_INDEX_KEY)
+		if raw in (None, ""):
+			return []
+		loaded = json.loads(raw) if isinstance(raw, str) else raw
+		if not isinstance(loaded, list):
+			return []
+		seen: set[str] = set()
+		result: list[str] = []
+		for value in loaded:
+			slug = str(value)
+			if safe_slug(slug) and slug not in seen:
+				seen.add(slug)
+				result.append(slug)
+		return result
+	except (urlerror.URLError, TimeoutError, json.JSONDecodeError, OSError, ValueError):
+		return []
+
+
+def _save_kv_event_index(slugs: list[str]) -> None:
+	if not _kv_enabled():
+		return
+	encoded = json.dumps(slugs, separators=(",", ":"))
+	_kv_set_raw(KV_EVENT_INDEX_KEY, encoded)
+
+
+def _register_event_slug(slug: str) -> None:
+	if not _kv_enabled():
+		return
+	try:
+		slugs = _load_kv_event_index()
+		if slug not in slugs:
+			slugs.append(slug)
+			_save_kv_event_index(slugs)
+	except (urlerror.URLError, TimeoutError, OSError, ValueError):
+		return
+
+
+def _unregister_event_slug(slug: str) -> None:
+	if not _kv_enabled():
+		return
+	try:
+		slugs = [value for value in _load_kv_event_index() if value != slug]
+		_save_kv_event_index(slugs)
+	except (urlerror.URLError, TimeoutError, OSError, ValueError):
+		return
+
+
+def _event_exists(slug: str) -> bool:
+	return _load_event_config(slug) is not None
+
+
+def _event_csv_exists(slug: str) -> bool:
+	return load_event_csv_text(slug) is not None
+
+
+def _all_event_slugs() -> list[str]:
+	seen: set[str] = set()
+	result: list[str] = []
+	if os.path.isdir(EVENTS_DIR):
+		for slug in os.listdir(EVENTS_DIR):
+			if safe_slug(slug) and slug not in seen:
+				seen.add(slug)
+				result.append(slug)
+	for slug in _load_kv_event_index():
+		if slug not in seen:
+			seen.add(slug)
+			result.append(slug)
+	return result
+
+
 def load_event(slug: str, states: dict[str, dict] | None = None) -> dict | None:
 	if not safe_slug(slug):
 		return None
 	state = _event_state(slug, states)
 	if state.get("deleted", False):
 		return None
-	path = _event_config_path(slug)
-	if not os.path.exists(path):
+	config = _load_event_config(slug)
+	if config is None:
 		return None
-	with open(path, encoding="utf-8") as f:
-		config = json.load(f)
 	if "active" in state:
 		config["active"] = bool(state.get("active"))
 	return config
 
 
 def save_event_config(slug: str, config: dict) -> None:
-	with open(_event_config_path(slug), "w", encoding="utf-8") as f:
-		json.dump(config, f, indent=2)
+	_write_event_config_to_file(slug, config)
+	if _kv_enabled():
+		try:
+			_kv_set_raw(_event_config_key(slug), json.dumps(config, separators=(",", ":")))
+			_register_event_slug(slug)
+		except (urlerror.URLError, TimeoutError, OSError, ValueError):
+			return
+
+
+def save_event_csv(slug: str, content: str) -> None:
+	_write_event_csv_to_file(slug, content)
+	if _kv_enabled():
+		try:
+			_kv_set_raw(_event_csv_key(slug), content)
+			_register_event_slug(slug)
+		except (urlerror.URLError, TimeoutError, OSError, ValueError):
+			return
+
+
+def delete_event_storage(slug: str) -> None:
+	if os.path.isdir(_event_dir(slug)):
+		shutil.rmtree(_event_dir(slug))
+	if _kv_enabled():
+		try:
+			_kv_delete_key(_event_config_key(slug))
+			_kv_delete_key(_event_csv_key(slug))
+			_unregister_event_slug(slug)
+		except (urlerror.URLError, TimeoutError, OSError, ValueError):
+			return
 
 
 def load_all_events(active_only: bool = False) -> list[dict]:
 	events = []
-	if not os.path.isdir(EVENTS_DIR):
-		return events
 	states = _load_event_states()
-	for slug in os.listdir(EVENTS_DIR):
+	for slug in _all_event_slugs():
 		config = load_event(slug, states)
 		if config is None:
 			continue
@@ -296,28 +488,26 @@ def parse_custom_fields(form_values: list[str]) -> list[str]:
 
 
 def csv_headers(slug: str) -> list[str]:
-	path = _event_csv_path(slug)
-	if not os.path.exists(path):
+	content = load_event_csv_text(slug)
+	if content is None:
 		return []
-	with open(path, newline="", encoding="utf-8") as f:
-		reader = csv.DictReader(f)
-		return [normalize_value(h) for h in (reader.fieldnames or []) if normalize_value(h)]
+	reader = csv.DictReader(content.splitlines())
+	return [normalize_value(h) for h in (reader.fieldnames or []) if normalize_value(h)]
 
 
 def load_csv_rows(slug: str) -> list[dict[str, str]]:
 	rows: list[dict[str, str]] = []
-	path = _event_csv_path(slug)
-	if not os.path.exists(path):
+	content = load_event_csv_text(slug)
+	if content is None:
 		return rows
-	with open(path, newline="", encoding="utf-8") as f:
-		reader = csv.DictReader(f)
-		for row in reader:
-			normalized_row: dict[str, str] = {}
-			for key, value in row.items():
-				normalized_key = normalize_value(key)
-				if normalized_key:
-					normalized_row[normalized_key] = normalize_value(value or "")
-			rows.append(normalized_row)
+	reader = csv.DictReader(content.splitlines())
+	for row in reader:
+		normalized_row: dict[str, str] = {}
+		for key, value in row.items():
+			normalized_key = normalize_value(key)
+			if normalized_key:
+				normalized_row[normalized_key] = normalize_value(value or "")
+		rows.append(normalized_row)
 	return rows
 
 
@@ -367,47 +557,44 @@ def event_form_context(config: dict, slug: str, error: str | None = None) -> dic
 
 def load_valid_participants(slug: str) -> set[tuple[str, str]]:
 	participants: set[tuple[str, str]] = set()
-	path = _event_csv_path(slug)
-	if not os.path.exists(path):
+	content = load_event_csv_text(slug)
+	if content is None:
 		return participants
-	with open(path, newline="", encoding="utf-8") as f:
-		reader = csv.DictReader(f)
-		for row in reader:
-			player = normalize_value(row.get("player", ""))
-			team = normalize_value(row.get("team", ""))
-			if player and team:
-				participants.add((player, team))
+	reader = csv.DictReader(content.splitlines())
+	for row in reader:
+		player = normalize_value(row.get("player", ""))
+		team = normalize_value(row.get("team", ""))
+		if player and team:
+			participants.add((player, team))
 	return participants
 
 
 def load_valid_names(slug: str) -> set[str]:
 	names: set[str] = set()
-	path = _event_csv_path(slug)
-	if not os.path.exists(path):
+	content = load_event_csv_text(slug)
+	if content is None:
 		return names
-	with open(path, newline="", encoding="utf-8") as f:
-		reader = csv.DictReader(f)
-		for row in reader:
-			name = normalize_value(row.get("name", ""))
-			if name:
-				names.add(name)
+	reader = csv.DictReader(content.splitlines())
+	for row in reader:
+		name = normalize_value(row.get("name", ""))
+		if name:
+			names.add(name)
 	return names
 
 
 def load_team_names(slug: str) -> list[str]:
-	path = _event_csv_path(slug)
-	if not os.path.exists(path):
+	content = load_event_csv_text(slug)
+	if content is None:
 		return []
 	seen: set[str] = set()
 	teams: list[str] = []
-	with open(path, newline="", encoding="utf-8") as f:
-		reader = csv.DictReader(f)
-		for row in reader:
-			team_raw = (row.get("team", "") or "").strip()
-			key = normalize_value(team_raw)
-			if team_raw and key not in seen:
-				seen.add(key)
-				teams.append(team_raw)
+	reader = csv.DictReader(content.splitlines())
+	for row in reader:
+		team_raw = (row.get("team", "") or "").strip()
+		key = normalize_value(team_raw)
+		if team_raw and key not in seen:
+			seen.add(key)
+			teams.append(team_raw)
 	return sorted(teams, key=lambda v: v.lower())
 
 
@@ -762,7 +949,7 @@ def admin_create_event():
 	if not safe_slug(slug):
 		return render_template("admin/event_form.html", event=form_data, is_new=True,
 							   error="Slug must be lowercase letters, numbers, and hyphens only."), 400
-	if os.path.exists(_event_config_path(slug)):
+	if _event_exists(slug):
 		return render_template("admin/event_form.html", event=form_data, is_new=True,
 							   error=f"An event with slug '{slug}' already exists."), 400
 	os.makedirs(_event_dir(slug), exist_ok=True)
@@ -783,7 +970,7 @@ def admin_edit_event(slug: str):
 		return redirect(url_for("admin_dashboard"))
 	return render_template("admin/event_form.html", event=config, is_new=False, error=None,
 						   has_template=os.path.exists(_event_template_path(slug)),
-						   has_csv=os.path.exists(_event_csv_path(slug)),
+						   has_csv=_event_csv_exists(slug),
 						   csv_columns=csv_headers(slug))
 
 
@@ -814,7 +1001,7 @@ def admin_update_config(slug: str):
 		return jsonify({"ok": True, "message": "Settings saved."})
 	return render_template("admin/event_form.html", event=config, is_new=False, success="Settings saved.",
 						   error=None, has_template=os.path.exists(_event_template_path(slug)),
-						   has_csv=os.path.exists(_event_csv_path(slug)),
+						   has_csv=_event_csv_exists(slug),
 						   csv_columns=csv_headers(slug))
 
 
@@ -826,7 +1013,7 @@ def admin_upload_template(slug: str):
 	config = load_event(slug)
 	if config is None:
 		return redirect(url_for("admin_dashboard"))
-	has_csv = os.path.exists(_event_csv_path(slug))
+	has_csv = _event_csv_exists(slug)
 	has_template = os.path.exists(_event_template_path(slug))
 	file = request.files.get("template_file")
 	if not file or file.filename == "":
@@ -847,6 +1034,7 @@ def admin_upload_template(slug: str):
 						   csv_columns=csv_headers(slug)), 400
 	
 	# Delete existing template files with any extension
+	os.makedirs(_event_dir(slug), exist_ok=True)
 	for ext in ['.png', '.jpg', '.jpeg', '.gif', '.webp']:
 		old_path = os.path.join(_event_dir(slug), f"template{ext}")
 		if os.path.exists(old_path):
@@ -871,7 +1059,7 @@ def admin_upload_csv(slug: str):
 	if config is None:
 		return redirect(url_for("admin_dashboard"))
 	has_template = os.path.exists(_event_template_path(slug))
-	has_csv = os.path.exists(_event_csv_path(slug))
+	has_csv = _event_csv_exists(slug)
 	file = request.files.get("csv_file")
 	if not file or file.filename == "":
 		return render_template("admin/event_form.html", event=config, is_new=False,
@@ -908,8 +1096,7 @@ def admin_upload_csv(slug: str):
 		return render_template("admin/event_form.html", event=config, is_new=False,
 							   error="Could not parse CSV file.", has_template=has_template, has_csv=has_csv,
 							   csv_columns=csv_headers(slug)), 400
-	with open(_event_csv_path(slug), "w", encoding="utf-8", newline="") as f:
-		f.write(content)
+	save_event_csv(slug, content)
 	return render_template("admin/event_form.html", event=config, is_new=False,
 						   success="Participants CSV uploaded.", error=None, has_template=has_template, has_csv=True,
 						   csv_columns=csv_headers(slug))
@@ -936,9 +1123,7 @@ def admin_delete_event(slug: str):
 		return redirect(url_for("admin_dashboard"))
 	if request.form.get("confirm", "") != slug:
 		return redirect(url_for("admin_dashboard"))
-	event_path = _event_dir(slug)
-	if os.path.isdir(event_path):
-		shutil.rmtree(event_path)
+	delete_event_storage(slug)
 	_set_event_state(slug, deleted=True, active=False)
 	return redirect(url_for("admin_dashboard"))
 

@@ -187,13 +187,21 @@
               <div
                 class="cert-preview-media"
                 id="certPreviewMedia"
-                data-render-url="{{ url_for('admin_render_preview', slug=event.slug) }}"
+                data-template-url="{{ url_for('admin_template_preview', slug=event.slug) }}"
               >
-                <img
-                  id="certPreviewImage"
-                  class="cert-preview-image"
-                  alt="Certificate template preview"
-                />
+                <div class="cert-preview-loading is-visible" id="certPreviewLoading" role="status" aria-live="polite">
+                  Loading template preview...
+                </div>
+                <canvas
+                  id="certPreviewBaseCanvas"
+                  class="cert-preview-canvas cert-preview-base"
+                  aria-label="Certificate template preview"
+                ></canvas>
+                <canvas
+                  id="certPreviewTextCanvas"
+                  class="cert-preview-canvas cert-preview-overlay"
+                  aria-label="Certificate template preview"
+                ></canvas>
               </div>
             </div>
             {% else %}
@@ -330,7 +338,11 @@
       toggleCustomPanelEdit();
 
       const previewMedia = document.getElementById('certPreviewMedia');
-      const previewImage = document.getElementById('certPreviewImage');
+      const previewLoadingEl = document.getElementById('certPreviewLoading');
+      const previewBaseCanvas = document.getElementById('certPreviewBaseCanvas');
+      const previewTextCanvas = document.getElementById('certPreviewTextCanvas');
+      const previewBaseCtx = previewBaseCanvas ? previewBaseCanvas.getContext('2d') : null;
+      const previewTextCtx = previewTextCanvas ? previewTextCanvas.getContext('2d') : null;
       const textXInput = document.getElementById('text_x');
       const textYInput = document.getElementById('text_y');
       const fontSizeInput = document.getElementById('font_size');
@@ -340,6 +352,13 @@
       let editAutosaveTimer = null;
       let editAutosaveInFlight = false;
       let editAutosaveQueued = false;
+      let previewTemplateImage = null;
+      let previewScaleX = 1;
+      let previewScaleY = 1;
+      const PREVIEW_MAX_WIDTH = 960;
+      const previewFontReadyPromise = document.fonts
+        ? document.fonts.load('700 32px "Montserrat Bold"').catch(() => undefined)
+        : Promise.resolve();
 
       function setEditSaveStatus(message, isError) {
         if (!editConfigStatus) return;
@@ -395,26 +414,98 @@
         editAutosaveTimer = setTimeout(runEditAutosave, 500);
       }
 
-      function buildPreviewUrl() {
-        if (!previewMedia) {
-          return '';
+      function syncPreviewCanvasSize() {
+        if (!previewMedia || !previewTemplateImage || !previewBaseCanvas || !previewTextCanvas) {
+          return false;
         }
-        const params = new URLSearchParams({
-          cert_name: (previewSampleInput && previewSampleInput.value.trim()) || 'Sample Text',
-          text_x: textXInput.value || '0',
-          text_y: textYInput.value || '0',
-          font_size: fontSizeInput.value || '100',
-          font_color: fontColorInput.value || '#321812',
-          t: String(Date.now())
-        });
-        return `${previewMedia.dataset.renderUrl}?${params.toString()}`;
+
+        const availableWidth = previewMedia.clientWidth || previewTemplateImage.width;
+        const drawWidth = Math.max(1, Math.round(Math.min(availableWidth, PREVIEW_MAX_WIDTH)));
+        const drawHeight = Math.max(1, Math.round(drawWidth * (previewTemplateImage.height / previewTemplateImage.width)));
+
+        if (previewBaseCanvas.width !== drawWidth || previewBaseCanvas.height !== drawHeight) {
+          previewBaseCanvas.width = drawWidth;
+          previewBaseCanvas.height = drawHeight;
+        }
+        if (previewTextCanvas.width !== drawWidth || previewTextCanvas.height !== drawHeight) {
+          previewTextCanvas.width = drawWidth;
+          previewTextCanvas.height = drawHeight;
+        }
+
+        previewScaleX = drawWidth / previewTemplateImage.width;
+        previewScaleY = drawHeight / previewTemplateImage.height;
+        return true;
       }
 
-      function updateSmallPreviewSample() {
-        if (!previewImage || !previewMedia || !textXInput || !textYInput || !fontSizeInput || !fontColorInput) {
+      function drawSmallPreviewBackground() {
+        if (!previewBaseCanvas || !previewBaseCtx || !previewTemplateImage) {
           return;
         }
-        previewImage.src = buildPreviewUrl();
+        if (!syncPreviewCanvasSize()) {
+          return;
+        }
+        previewBaseCtx.clearRect(0, 0, previewBaseCanvas.width, previewBaseCanvas.height);
+        previewBaseCtx.drawImage(previewTemplateImage, 0, 0, previewBaseCanvas.width, previewBaseCanvas.height);
+      }
+
+      function drawSmallPreviewText() {
+        if (!previewTextCanvas || !previewTextCtx || !previewMedia || !previewTemplateImage || !textXInput || !textYInput || !fontSizeInput || !fontColorInput) {
+          return;
+        }
+        if (!syncPreviewCanvasSize()) {
+          return;
+        }
+
+        previewTextCtx.clearRect(0, 0, previewTextCanvas.width, previewTextCanvas.height);
+
+        const displayText = (previewSampleInput && previewSampleInput.value.trim()) || 'Sample Text';
+        const textX = (parseInt(textXInput.value, 10) || 0) * previewScaleX;
+        const textY = (parseInt(textYInput.value, 10) || 0) * previewScaleY;
+        const fontSize = Math.max(12, (parseInt(fontSizeInput.value, 10) || 100) * previewScaleX);
+
+        previewTextCtx.fillStyle = fontColorInput.value || '#321812';
+        previewTextCtx.font = `bold ${fontSize}px "Montserrat Bold", Arial`;
+        previewTextCtx.textAlign = 'center';
+        previewTextCtx.textBaseline = 'middle';
+        previewTextCtx.fillText(displayText, textX, textY);
+      }
+
+      function loadSmallPreviewTemplate() {
+        if (!previewMedia || !previewBaseCanvas || !previewTextCanvas || !previewBaseCtx || !previewTextCtx || !previewMedia.dataset.templateUrl) {
+          return;
+        }
+
+        if (previewLoadingEl) {
+          previewLoadingEl.textContent = 'Loading template preview...';
+          previewLoadingEl.classList.remove('has-error');
+          previewLoadingEl.classList.add('is-visible');
+        }
+
+        const image = new Image();
+        image.onload = () => {
+          previewTemplateImage = image;
+          drawSmallPreviewBackground();
+          if (previewLoadingEl) {
+            previewLoadingEl.classList.remove('is-visible');
+          }
+          previewFontReadyPromise.finally(drawSmallPreviewText);
+        };
+        image.onerror = () => {
+          previewTemplateImage = null;
+          previewBaseCtx.clearRect(0, 0, previewBaseCanvas.width, previewBaseCanvas.height);
+          previewTextCtx.clearRect(0, 0, previewTextCanvas.width, previewTextCanvas.height);
+          previewBaseCtx.fillStyle = '#93a4c3';
+          previewBaseCtx.font = '20px "Montserrat Bold", Arial';
+          previewBaseCtx.textAlign = 'center';
+          previewBaseCtx.textBaseline = 'middle';
+          previewBaseCtx.fillText('Preview not available', previewBaseCanvas.width / 2, previewBaseCanvas.height / 2);
+          if (previewLoadingEl) {
+            previewLoadingEl.textContent = 'Could not load preview';
+            previewLoadingEl.classList.add('has-error');
+            previewLoadingEl.classList.add('is-visible');
+          }
+        };
+        image.src = `${previewMedia.dataset.templateUrl}?t=${Date.now()}`;
       }
 
       function scheduleSmallPreviewUpdate() {
@@ -422,9 +513,14 @@
           cancelAnimationFrame(previewRaf);
         }
         previewRaf = requestAnimationFrame(() => {
-          updateSmallPreviewSample();
+          drawSmallPreviewText();
           previewRaf = null;
         });
+      }
+
+      function redrawSmallPreview() {
+        drawSmallPreviewBackground();
+        drawSmallPreviewText();
       }
 
       [textXInput, textYInput, fontSizeInput, fontColorInput, previewSampleInput].forEach((el) => {
@@ -443,10 +539,10 @@
         });
       }
 
-      if (previewMedia && previewImage) {
-        scheduleSmallPreviewUpdate();
+      if (previewMedia && previewBaseCanvas && previewTextCanvas) {
+        loadSmallPreviewTemplate();
       }
-      window.addEventListener('resize', scheduleSmallPreviewUpdate);
+      window.addEventListener('resize', redrawSmallPreview);
     </script>
     {% endif %}
   </body>
