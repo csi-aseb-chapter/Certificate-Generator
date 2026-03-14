@@ -62,7 +62,11 @@ VALIDATION_TYPES = {"player_team", "name_only", "email", "badge_id", "custom", "
 
 
 def _kv_enabled() -> bool:
-	return bool(KV_REST_API_URL and KV_REST_API_TOKEN)
+	return bool(
+		KV_REST_API_TOKEN
+		and KV_REST_API_URL
+		and KV_REST_API_URL.lower().startswith(("http://", "https://"))
+	)
 
 
 def _read_event_states_from_file() -> dict[str, dict]:
@@ -121,7 +125,7 @@ def _load_event_states(force: bool = False) -> dict[str, dict]:
 	if _kv_enabled():
 		try:
 			states = _kv_get_event_states()
-		except (urlerror.URLError, TimeoutError, json.JSONDecodeError, OSError):
+		except (urlerror.URLError, TimeoutError, json.JSONDecodeError, OSError, ValueError):
 			states = _read_event_states_from_file()
 	else:
 		states = _read_event_states_from_file()
@@ -135,7 +139,7 @@ def _save_event_states(states: dict[str, dict]) -> None:
 	if _kv_enabled():
 		try:
 			_kv_set_event_states(states)
-		except (urlerror.URLError, TimeoutError, OSError):
+		except (urlerror.URLError, TimeoutError, OSError, ValueError):
 			# Keep local fallback for local dev / temporary outages.
 			_write_event_states_to_file(states)
 	else:
