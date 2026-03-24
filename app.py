@@ -765,9 +765,9 @@ def _render_certificate_to_bytes(cert_id: str, metadata: dict) -> tuple[bytes, s
 	image = Image.open(_cert_image_path(cert_id)).convert("RGBA")
 	draw_name_on_image(image, metadata)
 	
-	# Save to bytes
+	# Save to bytes (no optimize - caching is our bottleneck relief)
 	output = BytesIO()
-	image.save(output, format="PNG", optimize=True)
+	image.save(output, format="PNG")
 	png_bytes = output.getvalue()
 	
 	# Store in cache (with simple LRU by clearing if too large)
@@ -781,6 +781,7 @@ def _render_certificate_to_bytes(cert_id: str, metadata: dict) -> tuple[bytes, s
 def generate_certificate_file(slug: str, cert_name: str, event_config: dict) -> str:
 	image = Image.open(_event_template_path(slug)).convert("RGBA")
 	cert_id = uuid4().hex
+	# Save PNG without optimization to keep POST response fast
 	image.save(_cert_image_path(cert_id), format="PNG")
 	metadata = {
 		"event_slug": slug,
@@ -1292,7 +1293,7 @@ def admin_render_preview(slug: str):
 	metadata = build_preview_metadata(config, request.args.get("cert_name"))
 	draw_name_on_image(image, metadata)
 	output = BytesIO()
-	image.save(output, format="PNG", optimize=True)
+	image.save(output, format="PNG")
 	output.seek(0)
 	response = send_file(output, mimetype="image/png")
 	# Short cache for admin previews (they may change as settings are edited)
