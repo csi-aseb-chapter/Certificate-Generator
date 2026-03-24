@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 import json
 import os
 import re
@@ -64,6 +65,10 @@ KV_EVENT_CSV_PREFIX = os.environ.get("KV_EVENT_CSV_PREFIX", "certificate_generat
 _EVENT_STATE_CACHE: dict[str, dict] | None = None
 _EVENT_STATE_CACHE_AT = 0.0
 _EVENT_STATE_CACHE_TTL_SEC = 2.0
+
+# Rendered certificate image cache (in-memory) to avoid reprocessing
+_RENDERED_CERT_CACHE: dict[str, tuple[bytes, str]] = {}  # {cert_id: (png_bytes, etag)}
+_RENDERED_CERT_CACHE_MAX_SIZE = 50  # Keep cache size reasonable
 
 os.makedirs(EVENTS_DIR, exist_ok=True)
 os.makedirs(GENERATED_DIR, exist_ok=True)
@@ -740,6 +745,39 @@ def _cert_image_path(cert_id: str) -> str:
 	return os.path.join(GENERATED_DIR, f"{cert_id}.png")
 
 
+def _render_certificate_to_bytes(cert_id: str, metadata: dict) -> tuple[bytes, str]:
+	"""
+	Render certificate image to PNG bytes with text overlay.
+	Returns (png_bytes, etag) where etag is based on metadata.
+	Caches result to avoid reprocessing on subsequent requests.
+	"""
+	global _RENDERED_CERT_CACHE
+	
+	# Check cache first
+	if cert_id in _RENDERED_CERT_CACHE:
+		return _RENDERED_CERT_CACHE[cert_id]
+	
+	# Generate cache key/etag based on metadata
+	metadata_str = json.dumps(metadata, sort_keys=True, separators=(",", ":"))
+	etag = hashlib.md5(metadata_str.encode()).hexdigest()
+	
+	# Render the image
+	image = Image.open(_cert_image_path(cert_id)).convert("RGBA")
+	draw_name_on_image(image, metadata)
+	
+	# Save to bytes
+	output = BytesIO()
+	image.save(output, format="PNG", optimize=True)
+	png_bytes = output.getvalue()
+	
+	# Store in cache (with simple LRU by clearing if too large)
+	if len(_RENDERED_CERT_CACHE) >= _RENDERED_CERT_CACHE_MAX_SIZE:
+		_RENDERED_CERT_CACHE.clear()
+	
+	_RENDERED_CERT_CACHE[cert_id] = (png_bytes, etag)
+	return png_bytes, etag
+
+
 def generate_certificate_file(slug: str, cert_name: str, event_config: dict) -> str:
 	image = Image.open(_event_template_path(slug)).convert("RGBA")
 	cert_id = uuid4().hex
@@ -941,12 +979,21 @@ def preview_image(cert_id: str):
 	metadata = build_render_metadata(cert_id)
 	if metadata is None or not os.path.exists(_cert_image_path(cert_id)):
 		return ("Not found", 404)
-	image = Image.open(_cert_image_path(cert_id)).convert("RGBA")
-	draw_name_on_image(image, metadata)
-	output = BytesIO()
-	image.save(output, format="PNG")
-	output.seek(0)
-	return send_file(output, mimetype="image/png")
+	
+	# Use cached rendering to avoid reprocessing image
+	png_bytes, etag = _render_certificate_to_bytes(cert_id, metadata)
+	
+	# Add caching headers for browser optimization
+	response = send_file(
+		BytesIO(png_bytes),
+		mimetype="image/png",
+		etag=etag
+	)
+	# Cache for 1 year (immutable because cert_id won't change)
+	response.cache_control.max_age = 31536000
+	response.cache_control.public = True
+	response.cache_control.immutable = True
+	return response
 
 
 @app.route("/download-file/<cert_id>", methods=["GET"])
@@ -956,13 +1003,12 @@ def download_file(cert_id: str):
 	metadata = build_render_metadata(cert_id)
 	if metadata is None or not os.path.exists(_cert_image_path(cert_id)):
 		return ("Not found", 404)
-	image = Image.open(_cert_image_path(cert_id)).convert("RGBA")
-	draw_name_on_image(image, metadata)
-	output = BytesIO()
-	image.save(output, format="PNG")
-	output.seek(0)
+	
+	# Use cached rendering to avoid reprocessing image
+	png_bytes, _ = _render_certificate_to_bytes(cert_id, metadata)
+	
 	return send_file(
-		output,
+		BytesIO(png_bytes),
 		mimetype="image/png",
 		as_attachment=True,
 		download_name=safe_download_name(metadata["cert_name"], metadata.get("event_slug", "event")),
@@ -1246,9 +1292,13 @@ def admin_render_preview(slug: str):
 	metadata = build_preview_metadata(config, request.args.get("cert_name"))
 	draw_name_on_image(image, metadata)
 	output = BytesIO()
-	image.save(output, format="PNG")
+	image.save(output, format="PNG", optimize=True)
 	output.seek(0)
-	return send_file(output, mimetype="image/png")
+	response = send_file(output, mimetype="image/png")
+	# Short cache for admin previews (they may change as settings are edited)
+	response.cache_control.max_age = 60
+	response.cache_control.public = True
+	return response
 
 
 @app.route("/assets/fonts/<font_key>.ttf", methods=["GET"])
@@ -1259,7 +1309,12 @@ def font_asset(font_key: str):
 	font_option = resolve_font_option(font_key)
 	if not os.path.exists(font_option["path"]):
 		return "Font not found", 404
-	return send_file(font_option["path"], mimetype="font/ttf")
+	response = send_file(font_option["path"], mimetype="font/ttf")
+	# Cache fonts for 1 year (rarely change)
+	response.cache_control.max_age = 31536000
+	response.cache_control.public = True
+	response.cache_control.immutable = True
+	return response
 
 
 @app.route("/assets/fonts/montserrat-bold.ttf", methods=["GET"])
