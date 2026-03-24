@@ -51,44 +51,55 @@ body {
 .card {
   width: 100%;
   max-width: 560px;
-  background: var(--card);
+  background: linear-gradient(135deg, var(--card) 0%, rgba(32, 48, 80, 0.4) 100%);
   border-radius: 18px;
-  border: 1px solid var(--border);
-  box-shadow: var(--shadow);
-  padding: 2rem;
+  border: 1.5px solid var(--border);
+  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.38);
+  padding: 2.25rem;
   backdrop-filter: blur(16px);
+  transition: all 0.2s ease;
 }
 
 h1 {
   margin: 0 0 1.25rem;
   text-align: center;
   font-size: clamp(1.25rem, 2.5vw, 1.7rem);
+  font-weight: 700;
 }
 
 .form {
   display: grid;
-  gap: 0.75rem;
+  gap: 1rem;
 }
 
 label {
   font-size: 0.92rem;
   color: var(--muted);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
 }
 
 input {
   width: 100%;
-  border: 1px solid var(--border);
+  border: 1.5px solid var(--border);
   border-radius: 10px;
-  padding: 0.75rem 0.85rem;
+  padding: 0.85rem 1rem;
   font-size: 1rem;
   background: var(--surface);
   color: var(--text);
+  transition: all 0.2s ease;
+}
+
+input:hover {
+  border-color: var(--border-strong);
 }
 
 input:focus {
   outline: none;
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-soft);
+  box-shadow: 0 0 0 4px var(--accent-soft);
+  background: linear-gradient(135deg, rgba(16, 32, 56, 0.9) 0%, rgba(32, 48, 80, 0.7) 100%);
 }
 
 input::placeholder {
@@ -145,20 +156,28 @@ input[type="color"]::-moz-color-swatch {
 }
 
 button {
-  margin-top: 0.35rem;
+  margin-top: 0.5rem;
   border: none;
   border-radius: 10px;
-  padding: 0.8rem 1rem;
+  padding: 0.9rem 1.25rem;
   font-size: 1rem;
   font-weight: 600;
   color: #fff;
-  background: var(--accent);
+  background: linear-gradient(135deg, var(--accent) 0%, var(--accent-hover) 100%);
   cursor: pointer;
-  transition: background-color 0.2s ease;
+  transition: all 0.2s ease;
+  box-shadow: 0 4px 12px rgba(97, 168, 255, 0.2);
 }
 
 button:hover {
-  background: var(--accent-hover);
+  background: linear-gradient(135deg, var(--accent-hover) 0%, #a6d4ff 100%);
+  box-shadow: 0 6px 16px rgba(97, 168, 255, 0.35);
+  transform: translateY(-1px);
+}
+
+button:active {
+  transform: translateY(0);
+  box-shadow: 0 2px 8px rgba(97, 168, 255, 0.25);
 }
 
 .button-link {
@@ -166,24 +185,34 @@ button:hover {
   text-decoration: none;
   border: none;
   border-radius: 10px;
-  padding: 0.8rem 1rem;
+  padding: 0.9rem 1.25rem;
   font-size: 1rem;
   font-weight: 600;
   color: #fff;
-  background: var(--accent);
-  transition: background-color 0.2s ease;
+  background: linear-gradient(135deg, var(--accent) 0%, var(--accent-hover) 100%);
+  box-shadow: 0 4px 12px rgba(97, 168, 255, 0.2);
+  transition: all 0.2s ease;
 }
 
 .button-link:hover {
-  background: var(--accent-hover);
+  background: linear-gradient(135deg, var(--accent-hover) 0%, #a6d4ff 100%);
+  box-shadow: 0 6px 16px rgba(97, 168, 255, 0.35);
+  transform: translateY(-1px);
+}
+
+.button-link:active {
+  transform: translateY(0);
+  box-shadow: 0 2px 8px rgba(97, 168, 255, 0.25);
 }
 
 .button-link.secondary {
-  background: #31445f;
+  background: linear-gradient(135deg, #31445f 0%, #3c5474 100%);
+  box-shadow: 0 4px 12px rgba(97, 168, 255, 0.1);
 }
 
 .button-link.secondary:hover {
-  background: #3c5474;
+  background: linear-gradient(135deg, #3c5474 0%, #4a6688 100%);
+  box-shadow: 0 6px 16px rgba(97, 168, 255, 0.2);
 }
 
 .preview-card {
@@ -235,12 +264,15 @@ button:hover {
 }
 
 .error {
-  margin: 0 0 1rem;
-  background: var(--error-bg);
+  margin: 0 0 1.25rem;
+  background: linear-gradient(135deg, var(--error-bg) 0%, rgba(239, 68, 68, 0.12) 100%);
   color: var(--error-text);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-left: 4px solid #ff6b6b;
   border-radius: 10px;
-  padding: 0.65rem 0.85rem;
+  padding: 1rem 1.1rem;
   font-size: 0.95rem;
+  font-weight: 500;
 }
 
 @media (max-width: 520px) {
@@ -559,18 +591,25 @@ button:hover {
   /* ── Admin form sections ──────────────────────────────────── */
 
   .admin-form-section {
-    background: var(--card);
-    border: 1px solid var(--border);
+    background: linear-gradient(135deg, var(--card) 0%, rgba(32, 48, 80, 0.4) 100%);
+    border: 1.5px solid var(--border);
     border-radius: 14px;
-    padding: 1.5rem;
-    margin-bottom: 1.25rem;
+    padding: 2rem;
+    margin-bottom: 1.5rem;
     overflow-x: hidden;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+    transition: all 0.2s ease;
+  }
+
+  .admin-form-section:hover {
+    border-color: var(--border-strong);
   }
 
   .admin-form-section h3 {
-    margin: 0 0 1rem;
-    font-size: 1rem;
+    margin: 0 0 1.25rem;
+    font-size: 1.1rem;
     color: var(--text);
+    font-weight: 700;
   }
 
   .admin-form {
@@ -587,19 +626,25 @@ button:hover {
 
   .form-select {
     width: 100%;
-    border: 1px solid var(--border);
+    border: 1.5px solid var(--border);
     border-radius: 10px;
-    padding: 0.75rem 0.85rem;
+    padding: 0.85rem 1rem;
     font-size: 1rem;
     background: var(--surface);
     color: var(--text);
     cursor: pointer;
+    transition: all 0.2s ease;
+  }
+
+  .form-select:hover {
+    border-color: var(--border-strong);
   }
 
   .form-select:focus {
     outline: none;
     border-color: var(--accent);
-    box-shadow: 0 0 0 3px var(--accent-soft);
+    box-shadow: 0 0 0 4px var(--accent-soft);
+    background: linear-gradient(135deg, rgba(16, 32, 56, 0.9) 0%, rgba(32, 48, 80, 0.7) 100%);
   }
 
   .field-hint {
@@ -617,12 +662,15 @@ button:hover {
   }
 
   .success-msg {
-    margin: 0 0 1rem;
-    background: var(--success-bg);
+    margin: 0 0 1.25rem;
+    background: linear-gradient(135deg, var(--success-bg) 0%, rgba(34, 197, 94, 0.12) 100%);
     color: var(--success-text);
+    border: 1px solid rgba(34, 197, 94, 0.3);
+    border-left: 4px solid #22c55e;
     border-radius: 10px;
-    padding: 0.65rem 0.85rem;
+    padding: 1rem 1.1rem;
     font-size: 0.95rem;
+    font-weight: 500;
   }
 
   .button-link.danger {
@@ -636,34 +684,34 @@ button:hover {
   /* ── Validation type radio group ──────────────────────────── */
 
   .validation-type-group {
-    border: 1px solid var(--border);
+    border: 1.5px solid var(--border);
     border-radius: 12px;
-    padding: 1.25rem;
-    margin-bottom: 1rem;
-    background: rgba(16, 32, 56, 0.72);
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+    background: linear-gradient(135deg, rgba(16, 32, 56, 0.8) 0%, rgba(32, 48, 80, 0.6) 100%);
   }
 
   .validation-type-group legend {
     font-weight: 700;
-    font-size: 1rem;
+    font-size: 1.05rem;
     color: var(--text);
-    margin-bottom: 0.75rem;
+    margin-bottom: 1rem;
     padding: 0 0.25rem;
   }
 
   .validation-type-group .validation-option {
     display: grid;
     grid-template-columns: 24px 1fr;
-    column-gap: 0.65rem;
-    row-gap: 0.2rem;
-    margin-bottom: 0.75rem;
+    column-gap: 0.75rem;
+    row-gap: 0.3rem;
+    margin-bottom: 0.85rem;
     cursor: pointer;
     user-select: none;
-    border: 1px solid var(--border);
+    border: 1.5px solid var(--border);
     border-radius: 10px;
-    padding: 0.7rem 0.8rem;
-    background: var(--surface);
-    transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
+    padding: 0.9rem 1rem;
+    background: linear-gradient(135deg, var(--surface) 0%, rgba(32, 48, 80, 0.5) 100%);
+    transition: all 0.2s ease;
   }
 
   .validation-type-group .validation-option:last-child {
@@ -673,23 +721,24 @@ button:hover {
   .validation-type-group input[type="radio"] {
     margin-right: 0;
     cursor: pointer;
-    width: 18px;
-    height: 18px;
-    margin-top: 0.1rem;
+    width: 20px;
+    height: 20px;
+    margin-top: 0.15rem;
     grid-row: 1 / span 3;
+    accent-color: var(--accent);
   }
 
   .validation-type-group .validation-option strong {
     font-weight: 700;
     color: var(--text);
-    line-height: 1.2;
+    line-height: 1.3;
   }
 
   .validation-type-group .validation-desc {
     display: block;
     font-size: 0.9rem;
     color: var(--muted);
-    margin: 0.1rem 0 0.25rem;
+    margin: 0.15rem 0 0.25rem;
   }
 
   .validation-type-group .validation-csv {
@@ -700,28 +749,29 @@ button:hover {
     overflow-wrap: anywhere;
     word-break: break-word;
     font-family: "Monaco", "Courier New", monospace;
-    background: rgba(7, 17, 31, 0.45);
-    padding: 0.35rem 0.5rem;
-    border-radius: 4px;
+    background: rgba(7, 17, 31, 0.5);
+    padding: 0.4rem 0.6rem;
+    border-radius: 5px;
     border-left: 3px solid var(--accent);
   }
 
   .validation-type-group .validation-option:hover {
     border-color: var(--border-strong);
+    background: linear-gradient(135deg, rgba(32, 48, 80, 0.7) 0%, rgba(48, 64, 96, 0.6) 100%);
   }
 
   .validation-type-group .validation-option:has(input:checked) {
     border-color: var(--accent);
-    box-shadow: 0 0 0 3px var(--accent-soft);
-    background: rgba(97, 168, 255, 0.12);
+    box-shadow: 0 0 0 4px var(--accent-soft);
+    background: linear-gradient(135deg, rgba(97, 168, 255, 0.18) 0%, rgba(97, 168, 255, 0.08) 100%);
   }
 
   .custom-columns-panel {
-    border: 1px solid var(--border);
+    border: 1.5px solid var(--border);
     border-radius: 12px;
-    background: rgba(16, 32, 56, 0.72);
-    padding: 1rem;
-    margin: 0 0 1rem;
+    background: linear-gradient(135deg, rgba(16, 32, 56, 0.8) 0%, rgba(32, 48, 80, 0.6) 100%);
+    padding: 1.5rem;
+    margin: 0 0 1.5rem;
     display: none;
   }
 
@@ -730,42 +780,73 @@ button:hover {
   }
 
   .custom-columns-panel h3 {
-    margin: 0 0 0.35rem;
-    font-size: 1rem;
+    margin: 0 0 0.5rem;
+    font-size: 1.05rem;
+    font-weight: 700;
   }
 
   .custom-columns-panel .field-hint {
-    margin: 0 0 0.75rem;
+    margin: 0 0 1rem;
   }
 
   .custom-columns-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-    gap: 0.6rem;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 1rem;
   }
 
   .custom-column-option {
     display: flex;
-    align-items: center;
-    gap: 0.55rem;
-    padding: 0.45rem 0.55rem;
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    background: var(--surface);
-    font-weight: 600;
-    color: var(--text);
+    flex-direction: column;
+    gap: 0.6rem;
+    padding: 1rem;
+    border: 1.5px solid var(--border);
+    border-radius: 10px;
+    background: linear-gradient(135deg, rgba(16, 32, 56, 0.8) 0%, rgba(32, 48, 80, 0.6) 100%);
+    font-size: 0.95rem;
     cursor: pointer;
-  }
-
-  .custom-column-option input {
-    width: 16px;
-    height: 16px;
-    margin: 0;
+    transition: all 0.2s ease;
   }
 
   .custom-column-option:hover {
     border-color: var(--border-strong);
-    background: rgba(97, 168, 255, 0.08);
+    background: linear-gradient(135deg, rgba(32, 48, 80, 0.9) 0%, rgba(48, 64, 96, 0.7) 100%);
+    box-shadow: 0 4px 12px rgba(97, 168, 255, 0.12);
+  }
+
+  .custom-column-option label {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    margin: 0;
+    font-weight: 600;
+    color: var(--text);
+    cursor: pointer;
+    user-select: none;
+  }
+
+  .custom-column-option input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    margin: 0;
+    cursor: pointer;
+    accent-color: var(--accent);
+  }
+
+  .custom-column-option .field-hint {
+    margin: 0;
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding-left: 1.8rem;
+    font-size: 0.88rem;
+    color: var(--muted);
+    font-weight: 500;
+  }
+
+  .custom-column-option .field-hint input[type="checkbox"] {
+    margin: 0;
+    cursor: pointer;
   }
 
   .validation-type-group .validation-csv code {
@@ -773,6 +854,57 @@ button:hover {
     padding: 0;
     color: #d43030;
     font-weight: 600;
+  }
+
+  /* ── Datalist options (dropdown suggestions) ────────────────────── */
+
+  datalist {
+    display: none;
+  }
+
+  input[list] {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2361a8ff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 0.85rem center;
+    background-size: 18px 18px;
+    padding-right: 2.5rem;
+  }
+
+  input[list]:focus {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2387bbff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+  }
+
+  input[list]::placeholder {
+    color: #7f92ad;
+  }
+
+  /* ── Option styling via webkit (for supported browsers) ────────────── */
+
+  option {
+    background: var(--surface);
+    color: var(--text);
+    padding: 0.65rem 0.85rem;
+    border: none;
+  }
+
+  option:hover {
+    background: var(--accent);
+    color: #fff;
+  }
+
+  option:checked {
+    background: linear-gradient(135deg, var(--accent) 0%, var(--accent-hover) 100%);
+    color: #fff;
+    font-weight: 600;
+  }
+
+  /* ── Better Firefox datalist styling ──────────────────────────── */
+
+  input[list]::-webkit-list-button {
+    width: 20px;
+    height: 20px;
+    right: 8px;
+    background: transparent;
   }
 
   /* ── Certificate preview layout ───────────────────────────── */

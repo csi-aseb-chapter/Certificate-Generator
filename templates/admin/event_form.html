@@ -86,9 +86,9 @@
               <label class="validation-option">
                 <input type="radio" name="validation_type" value="badge_id"
                   {{ 'checked' if event and event.validation_type == 'badge_id' else '' }} />
-                <strong>Badge / ID</strong>
-                <span class="validation-desc">Participants are validated by badge or ID number.</span>
-                <span class="validation-csv">CSV one of: <code>id</code>, <code>badge_id</code>, <code>badge_number</code></span>
+                <strong>Roll No</strong>
+                <span class="validation-desc">Participants are validated by roll number.</span>
+                <span class="validation-csv">CSV one of: <code>roll_no</code>, <code>id</code>, <code>badge_id</code>, <code>badge_number</code></span>
               </label>
               <label class="validation-option">
                 <input type="radio" name="validation_type" value="custom"
@@ -112,11 +112,18 @@
               <p class="field-hint">Used only when <strong>Custom Fields</strong> is selected.</p>
               <div class="custom-columns-grid">
                 {% for col in csv_columns %}
-                <label class="custom-column-option">
-                  <input type="checkbox" name="custom_fields" value="{{ col }}"
-                    {{ 'checked' if event and event.custom_fields and (col in event.custom_fields) else '' }} />
-                  <span>{{ col }}</span>
-                </label>
+                <div class="custom-column-option">
+                  <label>
+                    <input type="checkbox" name="custom_fields" value="{{ col }}"
+                      {{ 'checked' if event and event.custom_fields and (col in event.custom_fields) else '' }} />
+                    <span>{{ col }}</span>
+                  </label>
+                  <label class="field-hint" style="display:block; margin-top:0.35rem;">
+                    <input type="checkbox" name="custom_dropdown_fields" value="{{ col }}"
+                      {{ 'checked' if event and event.custom_dropdown_fields and (col in event.custom_dropdown_fields) else '' }} />
+                    Use dropdown suggestions (team-style)
+                  </label>
+                </div>
                 {% endfor %}
               </div>
               {% else %}
@@ -273,7 +280,7 @@
               {% elif event.validation_type == 'email' %}
               Required column: <code>email</code>
               {% elif event.validation_type == 'badge_id' %}
-              Required one of: <code>id</code>, <code>badge_id</code>, <code>badge_number</code>
+              Required one of: <code>roll_no</code>, <code>id</code>, <code>badge_id</code>, <code>badge_number</code>
               {% elif event.validation_type == 'custom' %}
               Required: all selected custom fields above
               {% elif event.validation_type == 'none' %}

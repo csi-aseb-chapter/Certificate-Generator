@@ -70,6 +70,12 @@ _EVENT_STATE_CACHE_TTL_SEC = 2.0
 _RENDERED_CERT_CACHE: dict[str, tuple[bytes, str]] = {}  # {cert_id: (png_bytes, etag)}
 _RENDERED_CERT_CACHE_MAX_SIZE = 50  # Keep cache size reasonable
 
+# Font cache (in-memory) to avoid disk I/O on every render
+_FONT_CACHE: dict[str, ImageFont.FreeTypeFont | ImageFont.ImageFont] = {}  # {size:font_key -> font}
+
+# Template image cache (in-memory) to avoid repeated open/convert operations
+_TEMPLATE_IMAGE_CACHE: dict[str, Image.Image] = {}  # {event_slug -> RGBA Image}
+
 os.makedirs(EVENTS_DIR, exist_ok=True)
 os.makedirs(GENERATED_DIR, exist_ok=True)
 
@@ -590,13 +596,23 @@ def required_headers_for_validation(validation_type: str, custom_fields: list[st
 	return set()
 
 
-def build_custom_form_fields(custom_fields: list[str]) -> list[dict[str, str]]:
-	result: list[dict[str, str]] = []
+def build_custom_form_fields(slug: str, custom_fields: list[str], custom_dropdown_fields: list[str] | None = None) -> list[dict]:
+	result: list[dict] = []
+	dropdown_set = set(custom_dropdown_fields or [])
 	for field in custom_fields:
 		key = re.sub(r"[^a-z0-9]+", "_", field).strip("_")
 		if not key:
 			continue
-		result.append({"column": field, "key": key, "label": field.replace("_", " ").title()})
+		is_dropdown = field in dropdown_set
+		result.append(
+			{
+				"column": field,
+				"key": key,
+				"label": field.replace("_", " ").title(),
+				"is_dropdown": is_dropdown,
+				"options": load_unique_column_values(slug, field) if is_dropdown else [],
+			}
+		)
 	return result
 
 
@@ -604,7 +620,7 @@ def validation_prompt_for_type(validation_type: str) -> str:
 	if validation_type == "email":
 		return "Registration Email"
 	if validation_type == "badge_id":
-		return "Badge / ID Number"
+		return "Roll No"
 	if validation_type == "name_only":
 		return "Registration Name"
 	return "Registration Name"
@@ -613,11 +629,15 @@ def validation_prompt_for_type(validation_type: str) -> str:
 def event_form_context(config: dict, slug: str, error: str | None = None) -> dict:
 	validation_type = config.get("validation_type", "player_team")
 	custom_fields = config.get("custom_fields", [])
+	custom_dropdown_fields = config.get("custom_dropdown_fields", [])
+	validation_prompt = validation_prompt_for_type(validation_type)
+	registration_placeholder = "BL.SC.U4AIExxxxx" if validation_type == "badge_id" else f"Enter {validation_prompt.lower()}"
 	return {
 		"event": config,
 		"teams": load_team_names(slug) if validation_type == "player_team" else [],
-		"custom_form_fields": build_custom_form_fields(custom_fields),
-		"validation_prompt": validation_prompt_for_type(validation_type),
+		"custom_form_fields": build_custom_form_fields(slug, custom_fields, custom_dropdown_fields),
+		"validation_prompt": validation_prompt,
+		"registration_placeholder": registration_placeholder,
 		"error": error,
 	}
 
@@ -665,6 +685,27 @@ def load_team_names(slug: str) -> list[str]:
 	return sorted(teams, key=lambda v: v.lower())
 
 
+def load_unique_column_values(slug: str, column: str) -> list[str]:
+	content = load_event_csv_text(slug)
+	if content is None:
+		return []
+	reader = csv.DictReader(content.splitlines())
+	target = normalize_value(column)
+	seen: set[str] = set()
+	values: list[str] = []
+	for row in reader:
+		for key, value in row.items():
+			if normalize_value(key) != target:
+				continue
+			raw_value = (value or "").strip()
+			normalized = normalize_value(raw_value)
+			if raw_value and normalized not in seen:
+				seen.add(normalized)
+				values.append(raw_value)
+			break
+	return values
+
+
 def validate_participant_submission(slug: str, config: dict, form_data) -> str | None:
 	validation_type = config.get("validation_type", "player_team")
 	custom_fields: list[str] = config.get("custom_fields", [])
@@ -703,14 +744,14 @@ def validate_participant_submission(slug: str, config: dict, form_data) -> str |
 		if not registration_id:
 			return "Please fill all fields."
 		for row in rows:
-			if row.get("id", "") == registration_id or row.get("badge_id", "") == registration_id or row.get("badge_number", "") == registration_id:
+			if row.get("roll_no", "") == registration_id or row.get("id", "") == registration_id or row.get("badge_id", "") == registration_id or row.get("badge_number", "") == registration_id:
 				return None
-		return "Badge/ID not found in participant list."
+		return "Roll No not found in participant list."
 
 	if validation_type == "custom":
 		if not custom_fields:
 			return "Custom validation fields are not configured by admin."
-		form_fields = build_custom_form_fields(custom_fields)
+		form_fields = build_custom_form_fields(slug, custom_fields)
 		expected: dict[str, str] = {}
 		for field in form_fields:
 			value = normalize_value(form_data.get(f"custom_{field['key']}", ""))
@@ -728,13 +769,29 @@ def validate_participant_submission(slug: str, config: dict, form_data) -> str |
 # ─── Certificate helpers ──────────────────────────────────────────────────────
 
 def get_font(size: int, font_key: str | None = None) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
+	"""Load font with caching to avoid repeated disk I/O on Render."""
+	global _FONT_CACHE
+	cache_key = f"{size}:{font_key or DEFAULT_FONT_KEY}"
+	
+	# Return cached font if available
+	if cache_key in _FONT_CACHE:
+		return _FONT_CACHE[cache_key]
+	
 	font_option = resolve_font_option(font_key)
 	try:
 		if os.path.exists(font_option["path"]):
-			return ImageFont.truetype(font_option["path"], size=size)
-		return ImageFont.truetype("arial.ttf", size=size)
+			font = ImageFont.truetype(font_option["path"], size=size)
+		else:
+			font = ImageFont.truetype("arial.ttf", size=size)
 	except Exception:
-		return ImageFont.load_default()
+		font = ImageFont.load_default()
+	
+	# Cache the font
+	if len(_FONT_CACHE) >= 20:  # Reasonable limit for font cache
+		_FONT_CACHE.clear()
+	_FONT_CACHE[cache_key] = font
+	
+	return font
 
 
 def _cert_metadata_path(cert_id: str) -> str:
@@ -743,6 +800,68 @@ def _cert_metadata_path(cert_id: str) -> str:
 
 def _cert_image_path(cert_id: str) -> str:
 	return os.path.join(GENERATED_DIR, f"{cert_id}.png")
+
+
+def _get_cert_image_cached(cert_id: str) -> Image.Image | None:
+	"""
+	Load certificate PNG with caching to avoid repeated disk I/O on Render.
+	Returns a new copy of the cached image for safe modification.
+	"""
+	cache_key = f"cert_{cert_id}"
+	cert_path = _cert_image_path(cert_id)
+	
+	if not os.path.exists(cert_path):
+		return None
+	
+	global _TEMPLATE_IMAGE_CACHE
+	
+	# Load and cache the image if not already cached
+	if cache_key not in _TEMPLATE_IMAGE_CACHE:
+		try:
+			img = Image.open(cert_path).convert("RGBA")
+			# Limit cache to avoid memory bloat
+			if len(_TEMPLATE_IMAGE_CACHE) >= 100:
+				_TEMPLATE_IMAGE_CACHE.clear()
+			_TEMPLATE_IMAGE_CACHE[cache_key] = img
+		except Exception:
+			return None
+	
+	# Return a copy to avoid modifying the cached version
+	if cache_key in _TEMPLATE_IMAGE_CACHE:
+		return _TEMPLATE_IMAGE_CACHE[cache_key].copy()
+	
+	return None
+
+
+def _get_event_template_cached(slug: str) -> Image.Image | None:
+	"""
+	Load event template image with caching to avoid repeated disk I/O.
+	Returns a new copy of the cached image for safe modification.
+	"""
+	cache_key = f"template_{slug}"
+	template_path = _event_template_path(slug)
+	
+	if not os.path.exists(template_path):
+		return None
+	
+	global _TEMPLATE_IMAGE_CACHE
+	
+	# Load and cache the image if not already cached
+	if cache_key not in _TEMPLATE_IMAGE_CACHE:
+		try:
+			img = Image.open(template_path).convert("RGBA")
+			# Limit cache to avoid memory bloat
+			if len(_TEMPLATE_IMAGE_CACHE) >= 100:
+				_TEMPLATE_IMAGE_CACHE.clear()
+			_TEMPLATE_IMAGE_CACHE[cache_key] = img
+		except Exception:
+			return None
+	
+	# Return a copy to avoid modifying the cached version
+	if cache_key in _TEMPLATE_IMAGE_CACHE:
+		return _TEMPLATE_IMAGE_CACHE[cache_key].copy()
+	
+	return None
 
 
 def _render_certificate_to_bytes(cert_id: str, metadata: dict) -> tuple[bytes, str]:
@@ -761,8 +880,15 @@ def _render_certificate_to_bytes(cert_id: str, metadata: dict) -> tuple[bytes, s
 	metadata_str = json.dumps(metadata, sort_keys=True, separators=(",", ":"))
 	etag = hashlib.md5(metadata_str.encode()).hexdigest()
 	
-	# Render the image
-	image = Image.open(_cert_image_path(cert_id)).convert("RGBA")
+	# Render the image (use cached version to avoid disk I/O)
+	image = _get_cert_image_cached(cert_id)
+	if image is None:
+		# Fallback: try to load directly (shouldn't happen in normal flow)
+		cert_path = _cert_image_path(cert_id)
+		if not os.path.exists(cert_path):
+			return (b"", "")
+		image = Image.open(cert_path).convert("RGBA")
+	
 	draw_name_on_image(image, metadata)
 	
 	# Save to bytes (no optimize - caching is our bottleneck relief)
@@ -779,7 +905,14 @@ def _render_certificate_to_bytes(cert_id: str, metadata: dict) -> tuple[bytes, s
 
 
 def generate_certificate_file(slug: str, cert_name: str, event_config: dict) -> str:
-	image = Image.open(_event_template_path(slug)).convert("RGBA")
+	# Use cached template to avoid repeated disk I/O on Render
+	image = _get_event_template_cached(slug)
+	if image is None:
+		# Fallback to direct loading (shouldn't happen in normal flow)
+		image = Image.open(_event_template_path(slug)).convert("RGBA")
+	else:
+		image = image.copy()  # Make a copy to avoid modifying the cache
+	
 	cert_id = uuid4().hex
 	# Save PNG without optimization to keep POST response fast
 	image.save(_cert_image_path(cert_id), format="PNG")
@@ -1060,12 +1193,14 @@ def admin_create_event():
 	if validation_type not in VALIDATION_TYPES:
 		validation_type = "player_team"
 	custom_fields = parse_custom_fields(request.form.getlist("custom_fields"))
+	custom_dropdown_fields = [field for field in parse_custom_fields(request.form.getlist("custom_dropdown_fields")) if field in custom_fields]
 	text_x = _parse_int(request.form.get("text_x"), 1789)
 	text_y = _parse_int(request.form.get("text_y"), 1440)
 	font_size = _parse_int(request.form.get("font_size"), 100)
 	font_color = _parse_color(request.form.get("font_color", ""))
 	font_key = normalize_font_key(request.form.get("font_key"), DEFAULT_FONT_KEY)
 	form_data = {"name": name, "slug": slug, "validation_type": validation_type, "custom_fields": custom_fields,
+				 "custom_dropdown_fields": custom_dropdown_fields,
 				 "text_x": text_x, "text_y": text_y, "font_size": font_size, "font_color": font_color,
 				 "font_key": font_key}
 	if not name or not slug:
@@ -1078,6 +1213,7 @@ def admin_create_event():
 							   error=f"An event with slug '{slug}' already exists."), 400
 	os.makedirs(_event_dir(slug), exist_ok=True)
 	config = {"name": name, "slug": slug, "active": False, "validation_type": validation_type, "custom_fields": custom_fields,
+			  "custom_dropdown_fields": custom_dropdown_fields,
 			  "text_x": text_x, "text_y": text_y, "font_size": font_size, "font_color": font_color, "font_key": font_key}
 	save_event_config(slug, config)
 	_set_event_state(slug, deleted=False, active=False)
@@ -1112,10 +1248,13 @@ def admin_update_config(slug: str):
 		validation_type = "player_team"
 	config["validation_type"] = validation_type
 	parsed_custom_fields = parse_custom_fields(request.form.getlist("custom_fields"))
+	parsed_custom_dropdown_fields = parse_custom_fields(request.form.getlist("custom_dropdown_fields"))
+	allowed_dropdown_fields = [field for field in parsed_custom_dropdown_fields if field in parsed_custom_fields]
 	if validation_type == "custom":
 		config["custom_fields"] = parsed_custom_fields or config.get("custom_fields", [])
 	else:
 		config["custom_fields"] = parsed_custom_fields
+	config["custom_dropdown_fields"] = [field for field in allowed_dropdown_fields if field in config.get("custom_fields", [])]
 	config["text_x"] = _parse_int(request.form.get("text_x"), config.get("text_x", 1789))
 	config["text_y"] = _parse_int(request.form.get("text_y"), config.get("text_y", 1440))
 	config["font_size"] = _parse_int(request.form.get("font_size"), config.get("font_size", 100))
@@ -1206,9 +1345,9 @@ def admin_upload_csv(slug: str):
 	try:
 		reader = csv.DictReader(content.splitlines())
 		headers = {h.strip().lower() for h in (reader.fieldnames or [])}
-		if validation_type == "badge_id" and not ({"id", "badge_id", "badge_number"} & headers):
+		if validation_type == "badge_id" and not ({"roll_no", "id", "badge_id", "badge_number"} & headers):
 			return render_template("admin/event_form.html", event=config, is_new=False,
-								   error="CSV must include one of: id, badge_id, badge_number.",
+								   error="CSV must include one of: roll_no, id, badge_id, badge_number.",
 								   has_template=has_template, has_csv=has_csv,
 								   csv_columns=sorted(headers)), 400
 		if not required_headers.issubset(headers):
