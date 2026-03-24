@@ -66,6 +66,10 @@ _EVENT_STATE_CACHE: dict[str, dict] | None = None
 _EVENT_STATE_CACHE_AT = 0.0
 _EVENT_STATE_CACHE_TTL_SEC = 2.0
 
+# Event config cache (per-slug) to avoid repeated KV API calls during preview/download
+_EVENT_CONFIG_CACHE: dict[str, tuple[dict, float]] = {}  # {slug: (config, timestamp)}
+_EVENT_CONFIG_CACHE_TTL_SEC = 30.0  # 30 second TTL for event configs
+
 # Rendered certificate image cache (in-memory) to avoid reprocessing
 _RENDERED_CERT_CACHE: dict[str, tuple[bytes, str]] = {}  # {cert_id: (png_bytes, etag)}
 _RENDERED_CERT_CACHE_MAX_SIZE = 50  # Keep cache size reasonable
@@ -368,16 +372,39 @@ def _write_event_config_to_file(slug: str, config: dict) -> None:
 
 
 def _load_event_config(slug: str) -> dict | None:
+	"""Load event config with caching to minimize KV API calls during preview/download."""
+	global _EVENT_CONFIG_CACHE
+	
+	# Check cache first within TTL
+	if slug in _EVENT_CONFIG_CACHE:
+		config, cached_at = _EVENT_CONFIG_CACHE[slug]
+		if (time.time() - cached_at) < _EVENT_CONFIG_CACHE_TTL_SEC:
+			return config
+	
+	# Cache miss or expired - reload from source
+	config = None
 	if _kv_enabled():
 		try:
 			raw = _kv_get_raw(_event_config_key(slug))
 			if raw not in (None, ""):
 				loaded = json.loads(raw) if isinstance(raw, str) else raw
 				if isinstance(loaded, dict):
-					return loaded
+					config = loaded
 		except (urlerror.URLError, TimeoutError, json.JSONDecodeError, OSError, ValueError):
 			pass
-	return _read_event_config_from_file(slug)
+	
+	# Fallback to file if KV missed or on error
+	if config is None:
+		config = _read_event_config_from_file(slug)
+	
+	# Cache the result (even if None) to avoid hammering KV on missing configs
+	_EVENT_CONFIG_CACHE[slug] = (config, time.time())
+	
+	# Limit cache size to prevent memory bloat
+	if len(_EVENT_CONFIG_CACHE) > 100:
+		_EVENT_CONFIG_CACHE.clear()
+	
+	return config
 
 
 def _read_event_csv_from_file(slug: str) -> str | None:
@@ -500,6 +527,9 @@ def load_event(slug: str, states: dict[str, dict] | None = None) -> dict | None:
 def save_event_config(slug: str, config: dict) -> None:
 	_normalize_event_style_config(config)
 	_write_event_config_to_file(slug, config)
+	# Invalidate cache so next load gets the new config
+	global _EVENT_CONFIG_CACHE
+	_EVENT_CONFIG_CACHE.pop(slug, None)
 	if _kv_enabled():
 		try:
 			_kv_set_raw(_event_config_key(slug), json.dumps(config, separators=(",", ":")))
@@ -521,6 +551,9 @@ def save_event_csv(slug: str, content: str) -> None:
 def delete_event_storage(slug: str) -> None:
 	if os.path.isdir(_event_dir(slug)):
 		shutil.rmtree(_event_dir(slug))
+	# Invalidate cache for deleted event
+	global _EVENT_CONFIG_CACHE
+	_EVENT_CONFIG_CACHE.pop(slug, None)
 	if _kv_enabled():
 		try:
 			_kv_delete_key(_event_config_key(slug))
