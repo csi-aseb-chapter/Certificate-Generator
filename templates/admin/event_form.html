@@ -119,7 +119,7 @@
                     <span class="custom-column-name">{{ col }}</span>
                   </label>
                   <label class="custom-column-dropdown">
-                    <input type="radio" name="custom_dropdown_fields" value="{{ col }}"
+                    <input type="checkbox" name="custom_dropdown_fields" value="{{ col }}"
                       {{ 'checked' if event and event.custom_dropdown_fields and (col in event.custom_dropdown_fields) else '' }} />
                     <span>Use dropdown suggestions</span>
                   </label>
