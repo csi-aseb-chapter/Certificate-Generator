@@ -87,6 +87,14 @@ If KV variables are not set, the app uses local files under the runtime writable
 5. App generates a certificate image and redirects to preview
 6. User downloads the certificate PNG
 
+## Organizer Interface
+
+Alongside the public participant flow, the application also includes an authenticated organizer interface.
+
+Future club organizers can use this interface to manage events and certificate settings without modifying the codebase.
+
+Access location and credentials are intentionally not documented in this README and should be shared only through your club's internal handover process.
+
 ## Event Creation by Filesystem
 
 You can define events directly in the events directory.
@@ -168,8 +176,8 @@ badge_id:
 
 ```csv
 roll_no,name
-BLSCU4AIX1234,Aneesh Sagar Reddy
-BLSCU4AIX5678,Sara Arjun
+BL.SC.U4AIE12345,Aneesh Sagar Reddy
+BL.SC.U4CSE12345,Sara Arjun
 ```
 
 custom:
