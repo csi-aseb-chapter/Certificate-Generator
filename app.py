@@ -212,6 +212,7 @@ def _set_event_state(slug: str, **updates) -> None:
 	next_state.update(updates)
 	states[slug] = next_state
 	_save_event_states(states)
+	_ensure_event_slug_registered(slug)
 
 
 def _bootstrap_runtime_events() -> None:
@@ -390,6 +391,7 @@ def _load_event_config(slug: str) -> dict | None:
 				loaded = json.loads(raw) if isinstance(raw, str) else raw
 				if isinstance(loaded, dict):
 					config = loaded
+					_ensure_event_slug_registered(slug)
 		except (urlerror.URLError, TimeoutError, json.JSONDecodeError, OSError, ValueError):
 			pass
 	
@@ -476,6 +478,13 @@ def _register_event_slug(slug: str) -> None:
 		return
 
 
+def _ensure_event_slug_registered(slug: str) -> None:
+	"""Best-effort index repair for cases where config exists but index is stale."""
+	if not _kv_enabled() or not safe_slug(slug):
+		return
+	_register_event_slug(slug)
+
+
 def _unregister_event_slug(slug: str) -> None:
 	if not _kv_enabled():
 		return
@@ -507,6 +516,11 @@ def _all_event_slugs() -> list[str]:
 			if safe_slug(slug) and slug not in seen:
 				seen.add(slug)
 				result.append(slug)
+	# Include event state keys so state/index drift does not hide valid events.
+	for slug in _load_event_states().keys():
+		if safe_slug(slug) and slug not in seen:
+			seen.add(slug)
+			result.append(slug)
 	for slug in _load_kv_event_index():
 		if slug not in seen:
 			seen.add(slug)
