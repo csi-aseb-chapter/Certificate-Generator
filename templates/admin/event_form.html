@@ -113,15 +113,15 @@
               <div class="custom-columns-grid">
                 {% for col in csv_columns %}
                 <div class="custom-column-option">
-                  <label>
+                  <label class="custom-column-main">
                     <input type="checkbox" name="custom_fields" value="{{ col }}"
                       {{ 'checked' if event and event.custom_fields and (col in event.custom_fields) else '' }} />
-                    <span>{{ col }}</span>
+                    <span class="custom-column-name">{{ col }}</span>
                   </label>
-                  <label class="field-hint" style="display:block; margin-top:0.35rem;">
+                  <label class="custom-column-dropdown">
                     <input type="radio" name="custom_dropdown_fields" value="{{ col }}"
                       {{ 'checked' if event and event.custom_dropdown_fields and (col in event.custom_dropdown_fields) else '' }} />
-                    Use dropdown suggestions
+                    <span>Use dropdown suggestions</span>
                   </label>
                 </div>
                 {% endfor %}
