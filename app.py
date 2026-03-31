@@ -487,6 +487,11 @@ def _unregister_event_slug(slug: str) -> None:
 
 
 def _event_exists(slug: str) -> bool:
+	if not safe_slug(slug):
+		return False
+	# Slugs explicitly marked deleted are considered available for recreation.
+	if _event_state(slug).get("deleted", False):
+		return False
 	return _load_event_config(slug) is not None
 
 
