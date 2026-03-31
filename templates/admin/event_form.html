@@ -119,9 +119,9 @@
                     <span>{{ col }}</span>
                   </label>
                   <label class="field-hint" style="display:block; margin-top:0.35rem;">
-                    <input type="checkbox" name="custom_dropdown_fields" value="{{ col }}"
+                    <input type="radio" name="custom_dropdown_fields" value="{{ col }}"
                       {{ 'checked' if event and event.custom_dropdown_fields and (col in event.custom_dropdown_fields) else '' }} />
-                    Use dropdown suggestions (team-style)
+                    Use dropdown suggestions
                   </label>
                 </div>
                 {% endfor %}
