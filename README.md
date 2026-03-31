@@ -101,8 +101,8 @@ Create:
 
 ```json
 {
-  "name": "Introduction to Git and GitHub",
-  "slug": "introduction-to-git-and-github",
+  "name": "Think, Run, Debug Hackathon", # name of the event
+  "slug": "think-run-debug", # this is the url for the ppl to access later on
   "active": true,
   "validation_type": "player_team",
   "custom_fields": [],
@@ -131,10 +131,10 @@ All matching is case-insensitive and trimmed.
   - CSV must contain: name
 - email:
   - CSV must contain: email
-- badge_id:
+- roll_no:
   - CSV must contain at least one: roll_no, id, badge_id, badge_number
 - custom:
-  - CSV must contain all fields listed in custom_fields
+  - User can choose the validation fields according to the CSV uploaded
 - none:
   - No participant lookup required
 
@@ -144,7 +144,7 @@ player_team:
 
 ```csv
 player,team
-anees,alpha
+aneesh,alpha
 sara,beta
 ```
 
@@ -152,15 +152,15 @@ name_only:
 
 ```csv
 name
-anees khan
-sara ali
+Aneesh Sagar Reddy
+Sara Arjun
 ```
 
 email:
 
 ```csv
 email
-anees@example.com
+aneesh@example.com
 sara@example.com
 ```
 
@@ -168,16 +168,16 @@ badge_id:
 
 ```csv
 roll_no,name
-BLSCU4AIX1234,Anees Khan
-BLSCU4AIX5678,Sara Ali
+BLSCU4AIX1234,Aneesh Sagar Reddy
+BLSCU4AIX5678,Sara Arjun
 ```
 
 custom:
 
 ```csv
 department,employee_id,name
-engineering,E102,Anees Khan
-design,D008,Sara Ali
+engineering,E102,Aneesh Sagar Reddy
+design,D008,Sara Arjun
 ```
 
 ## Public Routes
