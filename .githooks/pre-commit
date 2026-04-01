@@ -1,0 +1,19 @@
+#!/usr/bin/env sh
+set -eu
+
+blocked='^(events/|generated_certificates/|misc/|\.env$|\.venv/)'
+
+staged_paths=$(git diff --cached --name-only --diff-filter=ACMR || true)
+if [ -z "$staged_paths" ]; then
+  exit 0
+fi
+
+violations=$(printf '%s\n' "$staged_paths" | grep -E "$blocked" || true)
+if [ -n "$violations" ]; then
+  echo "ERROR: Blocked files detected in staged changes:" >&2
+  printf '%s\n' "$violations" >&2
+  echo "Remove these files from the commit. They are protected by repository policy." >&2
+  exit 1
+fi
+
+exit 0

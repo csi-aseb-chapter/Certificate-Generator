@@ -1,12 +1,18 @@
+# Secrets and local environments
 .env
-.venv
+.venv/
 .vscode/
+
+# Python build/cache artifacts
 __pycache__/
 *.pyc
 *.pyo
 *.egg-info/
+
+# OS files
 .DS_Store
+
+# Never commit generated outputs or event runtime data
 generated_certificates/
 events/
-
 misc/
