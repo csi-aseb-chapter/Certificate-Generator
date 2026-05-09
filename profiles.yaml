@@ -1,0 +1,13 @@
+profiles:
+  workshop:
+    text_x: 1500
+    text_y: 1000
+    font_size: 90
+    font_color: [0, 0, 0]
+    font_key: montserrat_bold
+  competition:
+    text_x: 1789
+    text_y: 1440
+    font_size: 100
+    font_color: [50, 34, 24]
+    font_key: montserrat_bold

@@ -19,6 +19,8 @@ from flask import Flask, jsonify, redirect, render_template, request, send_file,
 from PIL import Image, ImageDraw, ImageFont
 from werkzeug.utils import secure_filename
 from dotenv import load_dotenv
+import yaml
+
 load_dotenv()
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", os.urandom(24))
@@ -528,6 +530,32 @@ def _all_event_slugs() -> list[str]:
 	return result
 
 
+def _apply_profile_overrides(config: dict) -> None:
+	mode = config.get("mode") or config.get("profile")
+	if not mode:
+		return
+	
+	profiles_path = os.path.join(BASE_DIR, "profiles.yaml")
+	if not os.path.exists(profiles_path):
+		return
+	
+	try:
+		with open(profiles_path, "r", encoding="utf-8") as f:
+			profiles_data = yaml.safe_load(f)
+			if not isinstance(profiles_data, dict):
+				return
+			
+			profiles = profiles_data.get("profiles", {})
+			profile_config = profiles.get(mode)
+			
+			if isinstance(profile_config, dict):
+				# Inherit keys if missing from the event config
+				for key in ["text_x", "text_y", "font_size", "font_color", "font_key"]:
+					if key in profile_config and key not in config:
+						config[key] = profile_config[key]
+	except Exception as e:
+		print(f"Error loading profile {mode}: {e}")
+
 def load_event(slug: str, states: dict[str, dict] | None = None) -> dict | None:
 	if not safe_slug(slug):
 		return None
@@ -537,6 +565,7 @@ def load_event(slug: str, states: dict[str, dict] | None = None) -> dict | None:
 	config = _load_event_config(slug)
 	if config is None:
 		return None
+	_apply_profile_overrides(config)
 	_normalize_event_style_config(config)
 	if "active" in state:
 		config["active"] = bool(state.get("active"))

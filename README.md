@@ -239,6 +239,59 @@ Check:
 
 Adjust text_x, text_y, and font_size in config.json, then retry preview.
 
+## Advanced Features
+
+### Reusable Layout Profiles
+
+Instead of defining `text_x`, `text_y`, etc., for every single event, you can use shared profiles.
+Create a `profiles.yaml` file in the root directory:
+
+```yaml
+profiles:
+  workshop:
+    text_x: 1500
+    text_y: 1000
+    font_size: 90
+    font_color: [0, 0, 0]
+    font_key: montserrat_bold
+```
+
+Then in an event's `config.json`, simply add `"profile": "workshop"`. The event will inherit these values automatically, though local `config.json` values always take precedence.
+
+### Command Line Interface (CLI)
+
+For bulk operations and administrative tasks, use `manage.py`.
+
+#### Split Large CSVs
+If your participant CSV is too large, you can chunk it:
+```bash
+python manage.py split-csv data.csv --chunk-size 100 --output-dir splits/
+```
+
+#### Bulk Generation
+If you want to generate all certificates for an event at once (for physical printing or backup), use:
+```bash
+python manage.py bulk-generate <event_slug>
+```
+Certificates will be saved to `generated_certificates/<event_slug>/exports/`.
+
+#### Bulk Email Delivery
+You can email certificates directly to all participants using SMTP. First, configure your `.env`:
+```env
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USER=your_email@gmail.com
+SMTP_PASS=your_app_password
+SMTP_FROM=your_email@gmail.com
+SMTP_FROM_NAME=Certificate Generator
+SMTP_STARTTLS=true
+```
+
+Then run the emailer command (it will generate and send in parallel):
+```bash
+python manage.py send-emails <event_slug>
+```
+
 ## Deployment Notes
 
 The repository includes process and platform config files for WSGI deployment.

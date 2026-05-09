@@ -359,10 +359,7 @@ button:active {
   }
 
   .site-footer {
-    position: fixed;
-    left: 0;
-    right: 0;
-    bottom: 0.55rem;
+    padding: 1rem 0;
     text-align: center;
     color: #86a1c2;
     font-size: 0.8rem;
